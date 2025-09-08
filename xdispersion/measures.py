@@ -8,6 +8,7 @@ Copyright 2018. All rights reserved. Use is subject to license terms.
 import numpy as np
 import xarray as xr
 from typing import Optional, Tuple, Literal, Union, List
+from tqdm import tqdm
 from xhistogram.xarray import histogram
 from .utils import semilog_fit, mean_at_rbin, gen_rbins, bootstrap
 
@@ -26,7 +27,8 @@ def rel_disp(
     rbins: Optional[xr.DataArray] = default_rbins,
     mean_at: Literal['const-t', 'const-r'] = 'const-t',
     ensemble: Optional[int] = 0,
-    CI: Optional[float] = 0.95
+    CI: Optional[float] = 0.95,
+    nproc: int = 1
 ) -> Union[xr.DataArray,
            Tuple[xr.DataArray, xr.DataArray, xr.DataArray]]:
     """Calculate moments of relative separation
@@ -72,7 +74,7 @@ def rel_disp(
         return how_to_mean(rN, r).rename(f'r{order}_{mean_at[-1]}')
     else:
         lb, ub = bootstrap(how_to_mean, [rN, r], {},
-                           ensemble=ensemble, CI=CI)
+                           ensemble=ensemble, CI=CI, nproc=nproc)
         
         return how_to_mean(rN, r).rename(f'r{order}_{mean_at[-1]}'),\
                lb.rename(f'LBr{order}_{mean_at[-1]}'),\
@@ -86,7 +88,8 @@ def vel_struct_func(
     rbins: Optional[xr.DataArray] = default_rbins,
     mean_at: Literal['const-t', 'const-r'] = 'const-r',
     ensemble: Optional[int] = 0,
-    CI: Optional[float] = 0.95
+    CI: Optional[float] = 0.95,
+    nproc: int = 1
 ) -> Union[xr.DataArray,
            Tuple[xr.DataArray, xr.DataArray, xr.DataArray]]:
     """Calculate velocity structure function
@@ -141,7 +144,7 @@ def vel_struct_func(
         return how_to_mean(SN, r).rename(f'S{order}_{mean_at[-1]}')
     else:
         lb, ub = bootstrap(how_to_mean, [SN, r], {},
-                           ensemble=ensemble, CI=CI)
+                           ensemble=ensemble, CI=CI, nproc=nproc)
         
         return how_to_mean(SN, r).rename(f'S{order}_{mean_at[-1]}'),\
                lb.rename(f'LBS{order}_{mean_at[-1]}'),\
@@ -151,9 +154,11 @@ def vel_struct_func(
 def rel_diff(
     r: xr.DataArray,
     rbins: Optional[xr.DataArray] = default_rbins,
+    samples: Literal['all', 'positive', 'negative'] = 'all',
     mean_at: Literal['const-t', 'const-r'] = 'const-t',
     ensemble: Optional[int] = 0,
-    CI: Optional[float] = 0.95
+    CI: Optional[float] = 0.95,
+    nproc: int = 1
 ) -> Union[xr.DataArray,
            Tuple[xr.DataArray, xr.DataArray, xr.DataArray]]:
     """Calculate relative diffusivity
@@ -164,6 +169,8 @@ def rel_diff(
         Relative separation.
     rbins: xr.DataArray
         A given set of separation bins used to average.
+    samples: str
+        Samples over which the average is taken.
     mean_at: str
         Condition of average. Should be one of ['const-t', 'const-r'],
         indicating average at constant time or separation.
@@ -188,9 +195,25 @@ def rel_diff(
     # define how to take average
     def how_to_mean(v, r):
         if mean_at == 'const-t':
-            return v.mean('pair')
+            if samples == 'all':
+                return v.mean('pair')
+            elif samples == 'positive':
+                return v.where(v>0).mean('pair')
+            elif samples == 'negative':
+                return v.where(v<0).mean('pair')
+            else:
+                raise Exception(f'unsupported samples {samples}, '+
+                                f'should be one of [all, positive, negative]')
         elif mean_at == 'const-r':
-            return mean_at_rbin(v, r, rbins)
+            if samples == 'all':
+                return mean_at_rbin(v, r, rbins)
+            elif samples == 'positive':
+                return mean_at_rbin(v, r, rbins, cond=v>0)
+            elif samples == 'negative':
+                return mean_at_rbin(v, r, rbins, cond=v<0)
+            else:
+                raise Exception(f'unsupported samples {samples}, '+
+                                f'should be one of [all, positive, negative]')
         else:
             raise Exception(f'unsupported mean_at string {mean_at}, '+
                             f'should be one of [const-t, const-r]')
@@ -199,7 +222,7 @@ def rel_diff(
         return how_to_mean(K2, r).rename(f'K2_{mean_at[-1]}')
     else:
         lb, ub = bootstrap(how_to_mean, [K2, r], {},
-                           ensemble=ensemble, CI=CI)
+                           ensemble=ensemble, CI=CI, nproc=nproc)
         
         return how_to_mean(K2, r).rename(f'K2_{mean_at[-1]}'),\
                lb.rename(f'LBK2_{mean_at[-1]}'),\
@@ -209,10 +232,11 @@ def rel_diff(
 def famp_growth_rate(
     r: xr.DataArray,
     rbins: Optional[xr.DataArray] = default_rbins,
-    positive: Optional[bool] = True,
+    samples: Literal['all', 'positive', 'negative'] = 'all',
     mean_at: Literal['const-t', 'const-r'] = 'const-r',
     ensemble: Optional[int] = 0,
-    CI: Optional[float] = 0.95
+    CI: Optional[float] = 0.95,
+    nproc: int = 1
 ) -> Union[xr.DataArray,
            Tuple[xr.DataArray, xr.DataArray, xr.DataArray]]:
     """Calculate finite-amplitude growth rate
@@ -223,8 +247,8 @@ def famp_growth_rate(
         Relative separation.
     rbins: xr.DataArray
         A given set of separation bins used to average.
-    positive: boolean
-        Average positive or all FAGR. Positive FAGR is close to FSLE.
+    samples: str
+        Samples over which the average is taken.
     mean_at: str
         Condition of average. Should be one of ['const-t', 'const-r'],
         indicating average at constant time or separation.
@@ -246,29 +270,44 @@ def famp_growth_rate(
     # contaminate the results via finite differencing
     sFAGR = np.log(r).ffill('rtime').differentiate('rtime')
     
+    p = 'a' # default: average over all samples
+
+    if samples == 'positive':
+        p = 'p'
+    if samples == 'negative':
+        p = 'n'
+    
     # define how to take average
     def how_to_mean(v, r):
         if mean_at == 'const-t':
-            if positive:
-                return v.where(v>0).mean('pair')
-            else:
+            if samples == 'all':
                 return v.mean('pair')
-        elif mean_at == 'const-r':
-            if positive:
-                return mean_at_rbin(v, r, rbins, cond=v>0)
+            elif samples == 'positive':
+                return v.where(v>0).mean('pair')
+            elif samples == 'negative':
+                return v.where(v<0).mean('pair')
             else:
+                raise Exception(f'unsupported samples {samples}, '+
+                                f'should be one of [all, positive, negative]')
+        elif mean_at == 'const-r':
+            if samples == 'all':
                 return mean_at_rbin(v, r, rbins)
+            elif samples == 'positive':
+                return mean_at_rbin(v, r, rbins, cond=v>0)
+            elif samples == 'negative':
+                return mean_at_rbin(v, r, rbins, cond=v<0)
+            else:
+                raise Exception(f'unsupported samples {samples}, '+
+                                f'should be one of [all, positive, negative]')
         else:
             raise Exception(f'unsupported mean_at string {mean_at}, '+
                             f'should be one of [const-t, const-r]')
-    
-    p = 'p' if positive else ''
     
     if ensemble <= 0:
         return how_to_mean(sFAGR, r).rename(f'FAGR{p}_{mean_at[-1]}')
     else:
         lb, ub = bootstrap(how_to_mean, [sFAGR, r], {},
-                           ensemble=ensemble, CI=CI)
+                           ensemble=ensemble, CI=CI, nproc=nproc)
         
         return how_to_mean(sFAGR, r).rename(f'FAGR{p}_{mean_at[-1]}'),\
                lb.rename(f'LBFAGR{p}_{mean_at[-1]}'),\
@@ -284,7 +323,8 @@ def init_memory(
     rbins: Optional[xr.DataArray] = default_rbins,
     mean_at: Literal['const-t', 'const-r'] = 'const-t',
     ensemble: Optional[int] = 0,
-    CI: Optional[float] = 0.95
+    CI: Optional[float] = 0.95,
+    nproc: int = 1
 ) -> Union[xr.DataArray,
            Tuple[xr.DataArray, xr.DataArray, xr.DataArray]]:
     """Calculate initial memory
@@ -336,7 +376,7 @@ def init_memory(
         return how_to_mean(initm, r).rename(f'initm_{mean_at[-1]}')
     else:
         lb, ub = bootstrap(how_to_mean, [initm, r], {},
-                           ensemble=ensemble, CI=CI)
+                           ensemble=ensemble, CI=CI, nproc=nproc)
         
         return how_to_mean(initm, r).rename(f'initm_{mean_at[-1]}'),\
                lb.rename(f'LBinitm_{mean_at[-1]}'),\
@@ -350,7 +390,8 @@ def anisotropy(
     rbins: Optional[xr.DataArray] = default_rbins,
     mean_at: Literal['const-t', 'const-r'] = 'const-t',
     ensemble: Optional[int] = 0,
-    CI: Optional[float] = 0.95
+    CI: Optional[float] = 0.95,
+    nproc: int = 1
 ) -> Union[xr.DataArray,
            Tuple[xr.DataArray, xr.DataArray, xr.DataArray]]:
     """Calculate anisotropy
@@ -411,7 +452,7 @@ def anisotropy(
         return how_to_mean(rx, ry, rxy, r).rename(f'aniso_{mean_at[-1]}')
     else:
         lb, ub = bootstrap(how_to_mean, [rx, ry, rxy, r], {},
-                           ensemble=ensemble, CI=CI)
+                           ensemble=ensemble, CI=CI, nproc=nproc)
         
         return how_to_mean(rx, ry, rxy, r).rename(f'aniso_{mean_at[-1]}'),\
                lb.rename(f'LBaniso_{mean_at[-1]}'),\
@@ -426,7 +467,8 @@ def lagr_vel_corr(
     rbins: Optional[xr.DataArray] = default_rbins,
     mean_at: Literal['const-t', 'const-r'] = 'const-t',
     ensemble: Optional[int] = 0,
-    CI: Optional[float] = 0.95
+    CI: Optional[float] = 0.95,
+    nproc: int = 1
 ) -> Union[xr.DataArray,
            Tuple[xr.DataArray, xr.DataArray, xr.DataArray]]:
     """Calculate Lagrangian velocity correlation
@@ -480,7 +522,7 @@ def lagr_vel_corr(
         return how_to_mean(uv, vs1, vs2, r).rename(f'lvc_{mean_at[-1]}')
     else:
         lb, ub = bootstrap(how_to_mean, [uv, vs1, vs2, r], {},
-                           ensemble=ensemble, CI=CI)
+                           ensemble=ensemble, CI=CI, nproc=nproc)
         
         return how_to_mean(uv, vs1, vs2, r).rename(f'lvc_{mean_at[-1]}'),\
                lb.rename(f'LBlvc_{mean_at[-1]}'),\
@@ -492,7 +534,8 @@ def kurtosis(
     rbins: Optional[xr.DataArray] = default_rbins,
     mean_at: Literal['const-t', 'const-r'] = 'const-t',
     ensemble: Optional[int] = 0,
-    CI: Optional[float] = 0.95
+    CI: Optional[float] = 0.95,
+    nproc: int = 1
 ) -> Union[xr.DataArray,
            Tuple[xr.DataArray, xr.DataArray, xr.DataArray]]:
     """Calculate Kurtosis
@@ -538,7 +581,7 @@ def kurtosis(
         return how_to_mean(r).rename(f'Ku_{mean_at[-1]}')
     else:
         lb, ub = bootstrap(how_to_mean, [r], {},
-                           ensemble=ensemble, CI=CI)
+                           ensemble=ensemble, CI=CI, nproc=nproc)
         
         return how_to_mean(r).rename(f'Ku_{mean_at[-1]}'),\
                lb.rename(f'LBKu_{mean_at[-1]}'),\
@@ -550,7 +593,8 @@ def cen_vul_exp(
     rbins: Optional[xr.DataArray] = default_rbins,
     mean_at: Literal['const-t', 'const-r'] = 'const-t',
     ensemble: Optional[int] = 0,
-    CI: Optional[float] = 0.95
+    CI: Optional[float] = 0.95,
+    nproc: int = 1
 ) -> Union[xr.DataArray,
            Tuple[xr.DataArray, xr.DataArray, xr.DataArray]]:
     """Calculate Cencini-Vulpiani exponent or proxy FSLE
@@ -597,7 +641,7 @@ def cen_vul_exp(
         return how_to_mean(r).rename(f'K2_{mean_at[-1]}')
     else:
         lb, ub = bootstrap(how_to_mean, [r], {},
-                           ensemble=ensemble, CI=CI)
+                           ensemble=ensemble, CI=CI, nproc=nproc)
         
         return how_to_mean(r).rename(f'K2_{mean_at[-1]}'),\
                lb.rename(f'LBK2_{mean_at[-1]}'),\
@@ -607,10 +651,11 @@ def cen_vul_exp(
 def fsize_lyap_exp(
     r: xr.DataArray,
     rbins: Optional[xr.DataArray] = default_rbins,
-    mean_at: Literal['const-t', 'const-r'] = 'const-t',
+    mean_at: Literal['const-t', 'const-r'] = 'const-r',
     interpT: Optional[int] = 1,
     ensemble: Optional[int] = 0,
-    CI: Optional[float] = 0.95
+    CI: Optional[float] = 0.95,
+    nproc: int = 1
 ) -> Union[xr.DataArray,
            Tuple[xr.DataArray, xr.DataArray, xr.DataArray]]:
     """Calculate finite-size Lyapunov exponent
@@ -641,6 +686,10 @@ def fsize_lyap_exp(
     ub: xarray.DataArray
         Upper-bound of confidence interval
     """
+    if mean_at == 'const-t':
+        raise Exception(f'unsupported mean_at string {mean_at}, '+
+                        f'should be only const-r')
+    
     def get_Td(r_single, rbins):
         if interpT > 1:
             rtime = r_single.rtime
@@ -658,7 +707,7 @@ def fsize_lyap_exp(
 
     # loop over each pair to get Td
     Td = []
-    for i in range(len(r['pair'])):
+    for i in tqdm(range(len(r['pair'])), ncols=80):
         Td.append(get_Td(r.isel(pair=i), rbins))
 
     Td = xr.concat(Td, dim='pair')
@@ -668,17 +717,107 @@ def fsize_lyap_exp(
     
     # define how to take average
     def how_to_mean(v):
-        if mean_at == 'const-r':
-            return v.mean('pair')
-        else:
-            raise Exception(f'unsupported mean_at string {mean_at}, '+
-                            f'should be only const-r')
+        return v.mean('pair')
         
     if ensemble <= 0:
         return how_to_mean(FSLE).rename(f'FSLE_{mean_at[-1]}')
     else:
         lb, ub = bootstrap(how_to_mean, [FSLE], {},
-                           ensemble=ensemble, CI=CI)
+                           ensemble=ensemble, CI=CI, nproc=nproc)
+        
+        return how_to_mean(FSLE).rename(f'FSLE_{mean_at[-1]}'),\
+               lb.rename(f'LBFSLE_{mean_at[-1]}'),\
+               ub.rename(f'UBFSLE_{mean_at[-1]}')
+
+
+def fsize_lyap_exp2(
+    r: xr.DataArray,
+    rbins: Optional[xr.DataArray] = default_rbins,
+    mean_at: Literal['const-t', 'const-r'] = 'const-r',
+    interpT: Optional[int] = 1,
+    ensemble: Optional[int] = 0,
+    CI: Optional[float] = 0.95,
+    nproc: int = 1
+) -> Union[xr.DataArray,
+           Tuple[xr.DataArray, xr.DataArray, xr.DataArray]]:
+    """Calculate finite-size Lyapunov exponent
+    
+    Parameters
+    ----------
+    r: xarray.DataArray
+        Relative separation.
+    rbins: xr.DataArray
+        A given set of separation bins used to average.
+    mean_at: str
+        Condition of average. Should be one of ['const-t', 'const-r'],
+        indicating average at constant time or separation.
+    ensemble: int
+        Times to bootstrapping.  0 for no bootstrapping
+    CI: float
+        Confidence interval for bootstrapping
+    interpT: int (> 0)
+        Interpolate along time dimension so that FSLE can be resolved
+        at the smallest scales.  1 means no interpolation.
+    
+    Returns
+    -------
+    FSLE: float
+        Finite-Scale Lyapunov Exponent.
+    lb: xarray.DataArray
+        Lower-bound of confidence interval
+    ub: xarray.DataArray
+        Upper-bound of confidence interval
+    """
+    if mean_at == 'const-t':
+        raise Exception(f'unsupported mean_at string {mean_at}, '+
+                        f'should be only const-r')
+    
+    def get_Td(r_single, rbins, rtime):
+        # r_single: shape (rtime,)
+        # rbins: shape (rbin,)
+        # rtime: shape (rtime,)
+        # 插值用 np.interp
+        # 这里假设 r_single 已经是 numpy 数组
+        # 找最小值索引
+        minidx = np.argmin(r_single)
+        rd = r_single[minidx:]
+        rtime_rd = rtime[minidx:]
+        # 找每个 rbin 第一次超过的时间索引
+        Td = np.full_like(rbins, np.nan)
+        for i, rb in enumerate(rbins):
+            mask = rd > rb
+            if np.any(mask):
+                Td[i] = rtime_rd[np.argmax(mask)]
+        return Td
+
+    Td = xr.apply_ufunc(
+        get_Td,
+        r.chunk({'rtime':-1}) if r.chunks else r,
+        rbins,
+        r['rtime'],
+        input_core_dims=[['rtime'], ['rbin'], ['rtime']],
+        output_core_dims=[['rbin']],
+        vectorize=True,
+        dask='parallelized' if r.chunks else False,
+        output_dtypes=[float]
+    )
+
+    Td = Td.assign_coords(pair=r['pair'], rbin=rbins)
+    
+    alpha = rbins.values[-1] / rbins.values[-2] # ratio of neighbouring bins
+    
+    FSLE = Td.diff('rbin')
+    FSLE = (np.log(alpha) / FSLE.where(FSLE != 0))
+    
+    # define how to take average
+    def how_to_mean(v):
+        return v.mean('pair')
+        
+    if ensemble <= 0:
+        return how_to_mean(FSLE).rename(f'FSLE_{mean_at[-1]}')
+    else:
+        lb, ub = bootstrap(how_to_mean, [FSLE], {},
+                           ensemble=ensemble, CI=CI, nproc=nproc)
         
         return how_to_mean(FSLE).rename(f'FSLE_{mean_at[-1]}'),\
                lb.rename(f'LBFSLE_{mean_at[-1]}'),\
@@ -694,7 +833,8 @@ def cumul_inv_sep_time(
     maskout: List[float] = [1e-8, 5e4],
     interpT: Optional[int] = 1,
     ensemble: Optional[int] = 0,
-    CI: Optional[float] = 0.95
+    CI: Optional[float] = 0.95,
+    nproc: int = 1
 ) -> Union[xr.DataArray,
            Tuple[xr.DataArray, xr.DataArray, xr.DataArray]]:
     """Definition of cumulative inverse separation time
@@ -730,10 +870,10 @@ def cumul_inv_sep_time(
     def how_to_mean(v):
         if mean_at == 'const-r':
             CDF = cumul_dens_func(prob_dens_func(v, rbins), rbins)
-            CDFrng = CDF.where(np.logical_and(CDF>lower, CDF<upper))
+            CDFrng = CDF.where(np.logical_and(CDF>lower, CDF<upper)).chunk({'rtime':-1})
             
             slope, inter, rms = xr.apply_ufunc(semilog_fit, CDFrng['rtime'], CDFrng,
-                                               dask='allowed',
+                                               dask='parallelized',
                                                input_core_dims=[['rtime'], ['rtime']],
                                                output_core_dims=[[], [], []],
                                                vectorize=True)
@@ -754,7 +894,7 @@ def cumul_inv_sep_time(
         return how_to_mean(r).rename(f'CIST_{mean_at[-1]}')
     else:
         lb, ub = bootstrap(how_to_mean, [r], {},
-                           ensemble=ensemble, CI=CI)
+                           ensemble=ensemble, CI=CI, nproc=nproc)
         
         return how_to_mean(r).rename(f'CIST_{mean_at[-1]}'),\
                lb.rename(f'LBFSLE_{mean_at[-1]}'),\

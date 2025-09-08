@@ -7,7 +7,12 @@ Copyright 2018. All rights reserved. Use is subject to license terms.
 """
 import numpy as np
 import xarray as xr
-from .utils import hist_mean
+from tqdm import tqdm
+from .measures import rel_disp, vel_struct_func,\
+     rel_diff, famp_growth_rate, init_memory, anisotropy,\
+     lagr_vel_corr, kurtosis, cen_vul_exp, fsize_lyap_exp,\
+     cumul_inv_sep_time, prob_dens_func, cumul_dens_func
+from .utils import mean_at_rbin, sum_at_rbin
 
 
 """
@@ -17,8 +22,8 @@ return all as a xarray.Dataset that can be
 easily output to a file.
 """
 
-def cal_all_measures(rd, pairs, rbins):
-    """Calculate all available measures
+def cal_all_measures(rd, pairs, rbins, ensemble=0, nproc=1):
+    """Calculate all available measures.  Users can add their own measures.
     
     Parameters
     ----------
@@ -34,212 +39,237 @@ def cal_all_measures(rd, pairs, rbins):
     dset: xr.Dataset
         All measures in a single xr.Dataset.
     """
-    def func_mean(samples):
-        return samples[0].mean('pair')
+    #-------------------- get building-blocks for different measures -----------------#
+    rx, ry, rxy, r, rpb = rd.separation_measures(pairs)
+    du, dv, dul, dut, vmi, vmj, uv = rd.velocity_measures(pairs)
     
-    def func_ani(samples):
-        rx2, ry2, rxy = samples
-        rx2m = rx2.mean('pair')
-        ry2m = ry2.mean('pair')
-        rxym = rxy.mean('pair')
-        ra2m, rb2m, rthem = rd.principle_axis_components(rx2m, ry2m, rxym)
-        return ra2m / rb2m
+    #----------------------- measures averaged at constant time --------------------#
+    with tqdm(total=29, ncols=80) as pbar:
+        mean_at = 'const-t'
+        r2_t, CILr2_t, CIUr2_t = rel_disp(r, order=2,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        rpb2_t, CILrpb2_t, CIUrpb2_t = rel_disp(rpb, order=2,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        S2_t, CILS2_t, CIUS2_t = vel_struct_func(np.hypot(du, dv), r,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        S2ll_t, CILS2ll_t, CIUS2ll_t = vel_struct_func(dul, r,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        S2tr_t, CILS2tr_t, CIUS2tr_t = vel_struct_func(dut, r,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        S3_t, CILS3_t, CIUS3_t = vel_struct_func(dul*(du**2+dv**2), r, order=1,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        K2_t, CILK2_t, CIUK2_t = rel_diff(r,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        FAGR_t, CILFAGR_t, CIUFAGR_t = famp_growth_rate(r,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        initm_t, CILinitm_t, CIUinitm_t = init_memory(rx, ry, du, dv, r,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        aniso_t, CILaniso_t, CIUaniso_t = anisotropy(rx, ry, rxy, r,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        LVC_t, CILLVC_t, CIULVC_t = lagr_vel_corr(uv, vmi, vmj, r,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        ku_t, CILku_t, CIUku_t = kurtosis(r,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        CVE_t, CILCVE_t, CIUCVE_t = cen_vul_exp(r,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        num_t = xr.where(np.isnan(r), 0, 1).sum('pair')
     
-    def func_lvc(samples):
-        uv, vm1, vm2 = samples
-        uvm  =  uv.mean('pair')
-        vm1m = vm1.mean('pair')
-        vm2m = vm2.mean('pair')
-        return 2.0 * uvm / (vm1m + vm2m)
+    #--------------------- measures average at constant separation ------------------#
+        mean_at = 'const-r'
+        r2_r, CILr2_r, CIUr2_r = rel_disp(r, order=2, rbins=rbins,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        rpb2_r, CILrpb2_r, CIUrpb2_r = rel_disp(rpb, order=2, rbins=rbins,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        S2_r, CILS2_r, CIUS2_r = vel_struct_func(np.hypot(du, dv), r, rbins=rbins,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        S2ll_r, CILS2ll_r, CIUS2ll_r = vel_struct_func(dul, r, rbins=rbins,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        S2tr_r, CILS2tr_r, CIUS2tr_r = vel_struct_func(dut, r, rbins=rbins,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        S3_r, CILS3_r, CIUS3_r = vel_struct_func(dul*(du**2+dv**2), r, order=1, rbins=rbins,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        K2_r, CILK2_r, CIUK2_r = rel_diff(r, rbins=rbins,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        FAGR_r, CILFAGR_r, CIUFAGR_r = famp_growth_rate(r, rbins=rbins,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        initm_r, CILinitm_r, CIUinitm_r = init_memory(rx, ry, du, dv, r, rbins=rbins,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        aniso_r, CILaniso_r, CIUaniso_r = anisotropy(rx, ry, rxy, r, rbins=rbins,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        LVC_r, CILLVC_r, CIULVC_r = lagr_vel_corr(uv, vmi, vmj, r, rbins=rbins,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        ku_r, CILku_r, CIUku_r = kurtosis(r, rbins=rbins,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        CVE_r, CILCVE_r, CIUCVE_r = cen_vul_exp(r, rbins=rbins,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        FSLE_r, CILFSLE_r, CIUFSLE_r = fsize_lyap_exp(r, rbins=rbins,
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        CIST_r, CILCIST_r, CIUCIST_r = cumul_inv_sep_time(r, rbins=rbins, lower=0.10, upper=0.90,
+                                          maskout=[1e-8, 5e3], mean_at=mean_at, ensemble=ensemble, nproc=nproc)
+        pbar.update(1)
+        num_r = sum_at_rbin(xr.where(np.isnan(r), 0, 1), r, rbins=rbins)
+        
+    #----------------------------- other measures --------------------------#
+        pbar.update(1)
+        PDF = prob_dens_func(r, rbins=rbins)
+        CDF = cumul_dens_func(PDF, rbins)
     
-    def func_Ku(samples):
-        r4, r2 = samples
-        r4m = r4.mean('pair')
-        r2m = r2.mean('pair')
-        return r4m / (r2m ** 2.0)
     
-    def func_S2t(samples):
-        du2, dv2 = samples
-        du2m = du2.mean('pair')
-        dv2m = dv2.mean('pair')
-        return du2m + dv2m
+    #------------------------------- output list ----------------------------#
+    vs = [r2_t   , CILr2_t   , CIUr2_t   , rpb2_t , CILrpb2_t , CIUrpb2_t ,
+          S2_t   , CILS2_t   , CIUS2_t   ,
+          S2ll_t , CILS2ll_t , CIUS2ll_t , S2tr_t , CILS2tr_t , CIUS2tr_t ,
+          S3_t   , CILS3_t   , CIUS3_t   , K2_t   , CILK2_t   , CIUK2_t   ,
+          FAGR_t , CILFAGR_t , CIUFAGR_t , initm_t, CILinitm_t, CIUinitm_t,
+          aniso_t, CILaniso_t, CIUaniso_t, LVC_t  , CILLVC_t  , CIULVC_t  ,
+          ku_t   , CILku_t   , CIUku_t   , CVE_t  , CILCVE_t  , CIUCVE_t  , num_t  ,
+          r2_r   , CILr2_r   , CIUr2_r   , rpb2_r , CILrpb2_r , CIUrpb2_r ,
+          S2_r   , CILS2_r   , CIUS2_r   ,
+          S2ll_r , CILS2ll_r , CIUS2ll_r , S2tr_r , CILS2tr_r , CIUS2tr_r ,
+          S3_r   , CILS3_r   , CIUS3_r   , K2_r   , CILK2_r   , CIUK2_r   ,
+          FAGR_r , CILFAGR_r , CIUFAGR_r , initm_r, CILinitm_r, CIUinitm_r,
+          aniso_r, CILaniso_r, CIUaniso_r, LVC_r  , CILLVC_r  , CIULVC_r  ,
+          ku_r   , CILku_r   , CIUku_r   , CVE_r  , CILCVE_r  , CIUCVE_r  , num_r  ,
+          FSLE_r , CILFSLE_r , CIUFSLE_r , CIST_r , CILCIST_r , CIUCIST_r ,
+          PDF    , CDF       ,
+          ]
     
-    def func_S2r(samples):
-        du2, dv2, r = samples
-        S2r = hist_mean(du2+dv2, r, rbins.values)
-        return S2r
+    #------------------------------- output names ----------------------------#
+    names = ['r2_t'   , 'CILr2_t'   , 'CIUr2_t'   , 'rpb2_t' , 'CILrpb2_t' , 'CIUrpb2_t' ,
+             'S2_t'   , 'CILS2_t'   , 'CIUS2_t'   ,
+             'S2ll_t' , 'CILS2ll_t' , 'CIUS2ll_t' , 'S2tr_t' , 'CILS2tr_t' , 'CIUS2tr_t' ,
+             'S3_t'   , 'CILS3_t'   , 'CIUS3_t'   , 'K2_t'   , 'CILK2_t'   , 'CIUK2_t'   ,
+             'FAGR_t' , 'CILFAGR_t' , 'CIUFAGR_t' , 'initm_t', 'CILinitm_t', 'CIUinitm_t',
+             'aniso_t', 'CILaniso_t', 'CIUaniso_t', 'LVC_t'  , 'CILLVC_t'  , 'CIULVC_t'  ,
+             'ku_t'   , 'CILku_t'   , 'CIUku_t'   , 'CVE_t'  , 'CILCVE_t'  , 'CIUCVE_t'  , 'num_t'  ,
+             'r2_r'   , 'CILr2_r'   , 'CIUr2_r'   , 'rpb2_r' , 'CILrpb2_r' , 'CIUrpb2_r' ,
+             'S2_r'   , 'CILS2_r'   , 'CIUS2_r'   ,
+             'S2ll_r' , 'CILS2ll_r' , 'CIUS2ll_r' , 'S2tr_r' , 'CILS2tr_r' , 'CIUS2tr_r' ,
+             'S3_r'   , 'CILS3_r'   , 'CIUS3_r'   , 'K2_r'   , 'CILK2_r'   , 'CIUK2_r'   ,
+             'FAGR_r' , 'CILFAGR_r' , 'CIUFAGR_r' , 'initm_r', 'CILinitm_r', 'CIUinitm_r',
+             'aniso_r', 'CILaniso_r', 'CIUaniso_r', 'LVC_r'  , 'CILLVC_r'  , 'CIULVC_r'  ,
+             'ku_r'   , 'CILku_r'   , 'CIUku_r'   , 'CVE_r'  , 'CILCVE_r'  , 'CIUCVE_r'  , 'num_r'  ,
+             'FSLE_r' , 'CILFSLE_r' , 'CIUFSLE_r' , 'CIST_r' , 'CILCIST_r' , 'CIUCIST_r',
+             'PDF'    , 'CDF'       ,]
     
-    def func_K2r(samples):
-        r2, r = samples
-        K2r = hist_mean(r2.differentiate('time')/2, r, rbins.values)
-        return K2r
-    
-    def func_K2t(samples):
-        r2m = samples[0].mean('pair')
-        return r2m.differentiate('time') / 2.0
-    
-    def func_cist(samples):
-        PDFm = rd.PDF(samples[0], rbins)
-        CDFm = rd.CDF(PDFm, rbins)
-        return rd.CIST(CDFm, 0.1, 0.9, maskout=[1e-6, 1e2])
-
-    
-    rx, ry, rxy, r, du, dv, dul, dut, vmi, vmj, uv = rd.stat_rv(pairs, reduction=None)
-    FSLE, nums2 = rd.FSLE(pairs, rbins, interpT=False, allPairs=False, reduction=None)
-    
-    trms = hist_mean(r.time, r, rbins.values)
-    K2r  = hist_mean((r**2).differentiate('time') / 2.0, r, rbins.values)
-    S2r  = hist_mean((du**2)+(dv**2), r, rbins.values)
-    S2ll = hist_mean((dul**2), r, rbins.values)
-    S2tr = hist_mean((dut**2), r, rbins.values)
-    S3r  = hist_mean(dul*(du**2+dv**2), r, rbins.values)
-    
-    stdeFS, CILFS, CIUFS = rd.bootstrap([FSLE] , 'pair', func=func_mean)
-    stderx, CILrx, CIUrx = rd.bootstrap([rx**2], 'pair', func=func_mean)
-    stdery, CILry, CIUry = rd.bootstrap([ry**2], 'pair', func=func_mean)
-    stder , CILr , CIUr  = rd.bootstrap([r**2], 'pair', func=func_mean)
-    stdeK2r, CILK2r, CIUK2r = rd.bootstrap([r**2, r], 'pair', func=func_K2r)
-    stdeK2t, CILK2t, CIUK2t = rd.bootstrap([r**2], 'pair', func=func_K2t)
-    
-    stdeKu , CILKu , CIUKu  = rd.bootstrap([r**4 , r**2], 'pair', func=func_Ku )
-    stdeS2r, CILS2r, CIUS2r = rd.bootstrap([du**2, dv**2, r], 'pair', func=func_S2r)
-    stdeS2t, CILS2t, CIUS2t = rd.bootstrap([du**2, dv**2], 'pair', func=func_S2t)
-    stdean , CILan , CIUan  = rd.bootstrap([rx**2, ry**2, rxy], 'pair', func=func_ani)
-    stdelv , CILlv , CIUlv  = rd.bootstrap([uv, vmi**2, vmj**2], 'pair', func=func_lvc)
-    stdeci , CILci , CIUci  = rd.bootstrap([r.rename('r')], 'pair', func=func_cist)
-    
-    PDF = rd.PDF(r.rename('r'), rbins)
-    nums = xr.where(~np.isnan(r), 1, 0).sum('pair')
-    
-    rx2 = (rx**2).mean('pair')
-    ry2 = (ry**2).mean('pair')
-    rxy =   (rxy).mean('pair')
-    r2  =  (r**2).mean('pair')
-    r4  =  (r**4).mean('pair')
-    du2 = (du**2).mean('pair')
-    dv2 = (dv**2).mean('pair')
-    vmi =(vmi**2).mean('pair')
-    vmj =(vmj**2).mean('pair')
-    uv  =  uv.mean('pair')
-    FSLE = FSLE.mean('pair')
-    
-    ra2, rb2, rthe = rd.principle_axis_components(rx2, ry2, rxy)
-    r2N = rd.numerical_r2(PDF, scaled2PiR=True)
-    lvc = 2.0 *uv /(vmi + vmj)
-    initm = (rx[:, 0] * du + ry[:, 0] * dv).mean('pair')
-    initn = (rx[:, 0] * du + ry[:, 0] * dv).mean('pair') / (r2[0] * (du**2 + dv**2).mean('pair'))
-    initn2 = (rx[:, 0] * du + ry[:, 0] * dv).mean('pair') / (r2[0] + (du**2 + dv**2).mean('pair'))
-    anixy = rx2 / ry2
-    aniab = ra2 / rb2
-    Ku  = r4 / (r2 ** 2.0)
-    KuN = rd.numerical_Kurtosis(PDF, scaled2PiR=True)
-    S2t = (du2 + dv2)
-    K2t = r2.differentiate('time') / 2.0
-    K2tN= rd.numerical_K2(PDF, scaled2PiR=True)
-    K2tN= hist_mean(K2tN, K2tN.r, rbins.values)
-    pFSLE = K2t / r2
-    CDF = rd.CDF(PDF, rbins)
-    cist1 = rd.CIST(CDF, 0.10, 0.90, maskout=[1e-6, 1e2])
-    cist2 = rd.CIST(CDF, 0.15, 0.85, maskout=[1e-6, 1e2])
-    cist3 = rd.CIST(CDF, 0.20, 0.80, maskout=[1e-6, 1e2])
-    cistN = rd.numerical_CIST(PDF, 0.1, 0.9, maskout=[1e-6, 1e2], scaled2PiR=True)
-    
-    vs = [rx2, ry2, rxy, r2, r2N, r4, ra2, rb2, rthe,
-          trms, initm, initn, initn2,
-          du2, dv2, vmi, vmj, uv, lvc, anixy, aniab, Ku, KuN,
-          S2r, S2ll, S2tr, S2t, S3r, K2r, K2t, K2tN, pFSLE,
-          stderx, stdery, stder, CILrx, CILry, CILr, CIUrx, CIUry, CIUr,
-          stdeK2r, CILK2r, CIUK2r, stdeK2t, CILK2t, CIUK2t,
-          stdeKu, CILKu, CIUKu, stdeS2r, CILS2r, CIUS2r, stdeS2t, CILS2t, CIUS2t,
-          stdean, CILan, CIUan, stdelv, CILlv, CIUlv, stdeci, CILci, CIUci,
-          PDF, CDF, cist1, cist2, cist3, cistN, FSLE, nums, nums2, stdeFS, CILFS, CIUFS]
-    
-    names = ['rx2', 'ry2', 'rxy', 'r2', 'r2N', 'r4', 'ra2', 'rb2', 'rthe',
-             'trms', 'initm', 'initn', 'initn2',
-             'du2', 'dv2', 'vm1', 'vm2', 'uv', 'lvc', 'anixy', 'aniab', 'Ku', 'KuN',
-             'S2r', 'S2ll', 'S2tr', 'S2t', 'S3r', 'K2r', 'K2t', 'K2tN', 'pFSLE',
-             'stderx', 'stdery', 'stdre', 'CILrx', 'CILry', 'CILr', 'CIUrx', 'CIUry', 'CIUr',
-             'stdeK2r', 'CILK2r', 'CIUK2r', 'stdeK2t', 'CILK2t', 'CIUK2t',
-             'stdeKu', 'CILKu', 'CIUKu', 'stdeS2r', 'CILS2r', 'CIUS2r', 'stdeS2t', 'CILS2t', 'CIUS2t',
-             'stdean', 'CILan', 'CIUan', 'stdelv', 'CILlv', 'CIUlv', 'stdeci', 'CILci', 'CIUci',
-             'PDF', 'CDF', 'cist1', 'cist2', 'cist3', 'cistN', 'FSLE', 'nums', 'nums2', 'stdeFSLE', 'CILFSLE', 'CIUFSLE']
-    
-    comments = ['x-component of relative dispersion',
-                'y-component of relative dispersion',
-                'cross-component of relative dispersion',
-                'total relative dispersion',
-                'numerical total relative dispersion',
-                'total 4th-order separation',
-                'major-component of relative dispersion',
-                'minor-component of relative dispersion',
-                'angle of the major axis',
-                'mean time at constant r',
-                'initial memory term',
-                'normalized initial memory term *',
-                'normalized initial memory term +',
-                'squared u-velocity difference',
-                'squared v-velocity difference',
-                'squared speed of the first particle',
-                'squared speed of the second particle',
-                'velocity projection of the first particle onto the second one',
-                'Lagrangian velocity correlation',
-                'anisotropy using x/y components <rx2>/<ry2>',
-                'anisotropy using major/minor components <ra2>/<rb2>',
-                'kurtosis', 'numerical kurtosis',
-                '2nd-order structure function-r',
-                '2nd-order longitudinal structure function',
-                '2nd-order transversal structure function',
-                '2nd-order structure function-t',
-                '3rd-order structure function-r',
-                'relative diffusivity-r',
-                'relative diffusivity-t',
-                'numerical relative diffusivity-t',
-                'proxy finite-size Lyapunov exponent',
-                'standard error for rx2',
-                'standard error for ry2',
-                'standard error for r2',
-                'lower-bound of confidence interval for rx2',
-                'lower-bound of confidence interval for ry2',
-                'lower-bound of confidence interval for r2',
-                'upper-bound of confidence interval for rx2',
-                'upper-bound of confidence interval for ry2',
-                'upper-bound of confidence interval for r2',
-                'standard error for K2r',
-                'lower-bound of confidence interval for K2r',
-                'upper-bound of confidence interval for K2r',
-                'standard error for K2t',
-                'lower-bound of confidence interval for K2t',
-                'upper-bound of confidence interval for K2t',
-                'standard error for Ku',
-                'lower-bound of confidence interval for Ku',
-                'upper-bound of confidence interval for Ku',
-                'standard error for S2r',
-                'lower-bound of confidence interval for S2r',
-                'upper-bound of confidence interval for S2r',
-                'standard error for S2t',
-                'lower-bound of confidence interval for S2t',
-                'upper-bound of confidence interval for S2t',
-                'standard error for anisotropy',
-                'lower-bound of confidence interval for anisotropy',
-                'upper-bound of confidence interval for anisotropy',
-                'standard error for lvc',
-                'lower-bound of confidence interval for lvc',
-                'upper-bound of confidence interval for lvc',
-                'standard error for cist',
-                'lower-bound of confidence interval for cist',
-                'upper-bound of confidence interval for cist',
-                'probability density function of r',
-                'cumulative density function of r',
-                'cumulative inverse separation time 0.1-0.9',
-                'cumulative inverse separation time 0.15-0.85',
-                'cumulative inverse separation time 0.2-0.8',
-                'numerical CIST 0.1-0.9',
-                'finite size lyapunov exponent',
-                'number of pairs',
-                'number of pairs in FSLE',
-                'standard error of FSLE',
-                'lower-bound of confidence interval for FSLE',
-                'upper-bound of confidence interval for FSLE']
+    #------------------------------- output comments ----------------------------#
+    comments = ['relative dispersion averaged at constant time',
+                'lower bound for relative dispersion',
+                'upper bound for relative dispersion',
+                'perturbation dispersion averaged at constant time',
+                'lower bound for perturbation dispersion',
+                'upper bound for perturbation dispersion',
+                '2nd-order structure function averaged at constant time',
+                'lower bound for 2nd-order structure function',
+                'upper bound for 2nd-order structure function',
+                '2nd-order longitudinal structure function averaged at constant time',
+                'lower bound for 2nd-order longitudinal structure function',
+                'upper bound for 2nd-order longitudinal structure function',
+                '2nd-order transversal structure function averaged at constant time',
+                'lower bound for 2nd-order transversal structure function',
+                'upper bound for 2nd-order transversal structure function',
+                '3rd-order structure function averaged at constant time',
+                'lower bound for 3rd-order structure function',
+                'upper bound for 3rd-order structure function',
+                'relative diffusivity averaged at constant time',
+                'lower bound for relative diffusivity',
+                'upper bound for relative diffusivity',
+                'finite-amplitude growth rate averaged at constant time',
+                'lower bound for finite-amplitude growth rate',
+                'upper bound for finite-amplitude growth rate',
+                'initial memory averaged at constant time',
+                'lower bound for initial memory',
+                'upper bound for initial memory',
+                'anisotropy averaged at constant time',
+                'lower bound for anisotropy',
+                'upper bound for anisotropy',
+                'Lagrangian velocity correlation averaged at constant time',
+                'lower bound for Lagrangian velocity correlation',
+                'upper bound for Lagrangian velocity correlation',
+                'kurtosis averaged at constant time',
+                'lower bound for kurtosis',
+                'upper bound for kurtosis',
+                'Cencini-Vulpiani exponent averaged at constant time',
+                'lower bound for Cencini-Vulpiani exponent',
+                'upper bound for Cencini-Vulpiani exponent',
+                'number of samples at constant time',
+                #
+                'relative dispersion averaged at constant separation',
+                'lower bound for relative dispersion',
+                'upper bound for relative dispersion',
+                'perturbation dispersion averaged at constant separation',
+                'lower bound for perturbation dispersion',
+                'upper bound for perturbation dispersion',
+                '2nd-order structure function averaged at constant separation',
+                'lower bound for 2nd-order structure function',
+                'upper bound for 2nd-order structure function',
+                '2nd-order longitudinal structure function averaged at constant separation',
+                'lower bound for 2nd-order longitudinal structure function',
+                'upper bound for 2nd-order longitudinal structure function',
+                '2nd-order transversal structure function averaged at constant separation',
+                'lower bound for 2nd-order transversal structure function',
+                'upper bound for 2nd-order transversal structure function',
+                '3rd-order structure function averaged at constant separation',
+                'lower bound for 3rd-order transversal structure function',
+                'upper bound for 3rd-order transversal structure function',
+                'relative diffusivity averaged at constant separation',
+                'lower bound for relative diffusivity',
+                'upper bound for relative diffusivity',
+                'finite-amplitude growth rate averaged at constant separation',
+                'lower bound for finite-amplitude growth rate',
+                'upper bound for finite-amplitude growth rate',
+                'initial memory averaged at constant separation',
+                'lower bound for initial memory',
+                'upper bound for initial memory',
+                'anisotropy averaged at constant separation',
+                'lower bound for anisotropy',
+                'upper bound for anisotropy',
+                'Lagrangian velocity correlation averaged at constant separation',
+                'lower bound for Lagrangian velocity correlation',
+                'upper bound for Lagrangian velocity correlation',
+                'kurtosis averaged at constant separation',
+                'lower bound for kurtosis',
+                'upper bound for kurtosis',
+                'Cencini-Vulpiani exponent averaged at constant separation',
+                'lower bound for Cencini-Vulpiani exponent',
+                'upper bound for Cencini-Vulpiani exponent',
+                'number of samples at constant separation',
+                'finite-size Lyapunov exponent averaged at constant separation',
+                'lower bound for finite-size Lyapunov exponent',
+                'upper bound for finite-size Lyapunov exponent',
+                'cumulative inverse separation time averaged at constant separation',
+                'lower bound for cumulative inverse separation time',
+                'upper bound for cumulative inverse separation time',
+                #
+                'probability density function of separation',
+                'cumulative density function of separation']
 
     if len(vs) != len(names) or len(vs) != len(comments):
         raise Exception(f'invalid lengths: {len(vs)}, {len(names)}, {len(comments)}')
@@ -251,6 +281,7 @@ def cal_all_measures(rd, pairs, rbins):
         tmp.append(v)
 
     return xr.merge(tmp)
+    
 
 
 

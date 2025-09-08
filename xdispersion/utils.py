@@ -9,6 +9,8 @@ import numpy as np
 import xarray as xr
 from typing import Union, Optional, List, Dict, Tuple, Callable
 from xhistogram.xarray import histogram
+import multiprocessing
+import concurrent.futures
 
 
 """
@@ -53,7 +55,8 @@ def bootstrap(
     args: List[xr.DataArray],
     kwargs: Dict,
     ensemble: int = 1000,
-    CI: int = 0.95
+    CI: int = 0.95,
+    nproc: int = 1,
 ) -> Tuple[xr.DataArray, xr.DataArray]:
     """Calculate standard error and confidence interval
 
@@ -70,12 +73,16 @@ def bootstrap(
     ----------
     func: function
         A function that transform a group of samples into a metric.
-    params: list of xarray.DataArray
+    args: list of xarray.DataArray
         A set of given parameters for func.
+    kwargs: dict
+        A set of keyword parameters for func.
     ensemble: int
         How many times bootstrapping is done.
     CI: float
         Confidence interval.
+    nproc: int
+        Number of process.
     
     Returns
     -------
@@ -88,13 +95,32 @@ def bootstrap(
         raise Exception('args should be a list of xr.DataArray')
     
     size = len(args[0]['pair'])
+
+    if nproc == 1:
+        tmp = []
+        for i in range(ensemble):
+            indices  = np.random.choice(range(size), size=size, replace=True)
+            resample = [arg.isel({'pair':indices}) for arg in args]
+            metrics  = func(*resample, **kwargs)
+            tmp.append(metrics)
+    elif nproc > 1:
+        def _bootstrap_task():
+            indices  = np.random.choice(range(size), size=size, replace=True)
+            resample = [arg.isel({'pair':indices}) for arg in args]
+            metric   = func(*resample, **kwargs)
+            return metric
+        
+        # with multiprocessing.Pool(processes=nproc) as pool:
+        #     tmp = [pool.apply(_bootstrap_task) for i in range(ensemble)]
     
-    tmp = []
-    for i in range(ensemble):
-        indices  = np.random.choice(range(size), size=size, replace=True)
-        resample = [arg.isel({'pair':indices}) for arg in args]
-        metrics  = func(*resample, **kwargs)
-        tmp.append(metrics)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=nproc) as executor:
+            # Submit tasks to the thread pool
+            futures = [executor.submit(_bootstrap_task) for i in range(ensemble)]
+            
+            # Retrieve results as they complete
+            tmp = [future.result() for future in concurrent.futures.as_completed(futures)]
+    else:
+        raise Exception(f'invalid nproc={nproc}, should be a positive integer')
     
     re = xr.concat(tmp, dim='_ensem')
     re['_ensem'] = np.arange(ensemble)
@@ -372,4 +398,5 @@ def _check_indices(
 ):
     if i2 - i1 != j2 - j1:
         raise Exception('invalid indices')
+
 

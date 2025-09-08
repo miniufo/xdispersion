@@ -31,7 +31,7 @@ the full expressions of the p.d.f.
 """
 
 def ana_r2(
-    r: xr.DataArray,
+    t: xr.DataArray,
     params: Dict[str, str],
     regime: str
 ) -> xr.DataArray:
@@ -48,8 +48,8 @@ def ana_r2(
     
     Parameters
     ----------
-    r: xr.DataArray
-        A given separation.
+    t: xr.DataArray
+        A given time.
     params: dict
         Parameters used in the expression of each regime.
         Should be ['T', 'beta', 'lambda', 'k2']
@@ -61,12 +61,8 @@ def ana_r2(
     r2: xr.DataArray
         Analytical prediction of relative dispersion.
     """
-    ts = r['time'] if 'time' in r.coords else r['rtime']
-
-    if 'r0' in params:
-        r0 = params['r0']
-    else:
-        r0 = r[0].values
+    ts = t
+    r0 = params['r0']
     
     if regime.lower() in ['lundgren', 'nonlocal', '-3']:
         TL = params['T']
@@ -80,7 +76,7 @@ def ana_r2(
         tmp = (4.0 * r0**(1.0/2.0)) / (lmbd * ts)
         coeff= gamma(8) / gamma(4) * (lmbd * ts / 4.0)**4.0
         newF = np.frompyfunc(func, 2, 1)
-        r2   = newF(tmp, coeff).astype(r.dtype)
+        r2   = newF(tmp, coeff).astype(ts.dtype)
         
     elif regime.lower() in ['-2-a']:
         r2 = 3.28125 * (params['lambda'] * ts) ** 4.0
@@ -93,7 +89,7 @@ def ana_r2(
         tmp  = (9.0 * r0**(2.0/3.0)) / (4.0 * beta * ts)
         coeff= gamma(6) * (4.0 * beta * ts / 9.0)**3.0 / 2.0
         newF = np.frompyfunc(func, 2, 1)
-        r2   = newF(tmp, coeff).astype(r.dtype)
+        r2   = newF(tmp, coeff).astype(ts.dtype)
         
     elif regime.lower() in ['richardson-a', 'local-a', '-5/3-a']:
         r2 = 5.2675 * (params['beta'] * ts) **3.0
@@ -109,13 +105,14 @@ def ana_r2(
                         'should be [Lundgren, Richardson, Rayleigh], '+\
                         'or [local, nonlocal, -3, -2, -5/3]')
 
-    r2[0] = r0 ** 2.0
+    if t[0] == 0:
+        r2[0] = r0 ** 2.0
     
     return r2.rename('r2_' + regime[:2])
 
 
 def ana_Ku(
-    r: xr.DataArray,
+    t: xr.DataArray,
     params: Dict[str, str],
     regime: str
 ) -> xr.DataArray:
@@ -129,8 +126,8 @@ def ana_Ku(
     
     Parameters
     ----------
-    r: xr.DataArray
-        A given separation.
+    t: xr.DataArray
+        A given time.
     params: dict
         Parameters used in the expression of each regime.
         Should be ['T', 'beta', 'lambda', 'k2']
@@ -142,7 +139,7 @@ def ana_Ku(
     Ku: xr.DataArray
         Analytic prediction of Kurtosis.
     """
-    ts = r['time'] if 'time' in r.coords else r['rtime']
+    ts = t
     
     if regime.lower() in ['lundgren', 'nonlocal', '-3']:
         Ku = np.exp(8.0 * ts / params['T'])

@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-#from .core import get_all_pairs, get_overlap_indices
 
 from .analytics import ana_r2, ana_Ku, ana_K2, ana_CIST,\
                        ana_S2, ana_S3, ana_PDF,\
@@ -12,6 +11,7 @@ from .measures import rel_disp, vel_struct_func, rel_diff,\
                       prob_dens_func, cumul_dens_func,\
                       principle_axis_components,\
                       rotational_divergent_components
+from .fpe import integrate, CFLcondition
 from .plot import panel
 from .template import cal_all_measures
 from .utils import geodist, gen_rbins

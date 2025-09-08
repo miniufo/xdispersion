@@ -22,7 +22,7 @@ return all as a xarray.Dataset that can be
 easily output to a file.
 """
 
-def cal_all_measures(rd, pairs, rbins, ensemble=0):
+def cal_all_measures(rd, pairs, rbins, ensemble=0, nproc=1):
     """Calculate all available measures.  Users can add their own measures.
     
     Parameters
@@ -47,92 +47,92 @@ def cal_all_measures(rd, pairs, rbins, ensemble=0):
     with tqdm(total=29, ncols=80) as pbar:
         mean_at = 'const-t'
         r2_t, CILr2_t, CIUr2_t = rel_disp(r, order=2,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         rpb2_t, CILrpb2_t, CIUrpb2_t = rel_disp(rpb, order=2,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         S2_t, CILS2_t, CIUS2_t = vel_struct_func(np.hypot(du, dv), r,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         S2ll_t, CILS2ll_t, CIUS2ll_t = vel_struct_func(dul, r,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         S2tr_t, CILS2tr_t, CIUS2tr_t = vel_struct_func(dut, r,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         S3_t, CILS3_t, CIUS3_t = vel_struct_func(dul*(du**2+dv**2), r, order=1,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         K2_t, CILK2_t, CIUK2_t = rel_diff(r,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         FAGR_t, CILFAGR_t, CIUFAGR_t = famp_growth_rate(r,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         initm_t, CILinitm_t, CIUinitm_t = init_memory(rx, ry, du, dv, r,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         aniso_t, CILaniso_t, CIUaniso_t = anisotropy(rx, ry, rxy, r,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         LVC_t, CILLVC_t, CIULVC_t = lagr_vel_corr(uv, vmi, vmj, r,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         ku_t, CILku_t, CIUku_t = kurtosis(r,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         CVE_t, CILCVE_t, CIUCVE_t = cen_vul_exp(r,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         num_t = xr.where(np.isnan(r), 0, 1).sum('pair')
     
     #--------------------- measures average at constant separation ------------------#
         mean_at = 'const-r'
         r2_r, CILr2_r, CIUr2_r = rel_disp(r, order=2, rbins=rbins,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         rpb2_r, CILrpb2_r, CIUrpb2_r = rel_disp(rpb, order=2, rbins=rbins,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         S2_r, CILS2_r, CIUS2_r = vel_struct_func(np.hypot(du, dv), r, rbins=rbins,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         S2ll_r, CILS2ll_r, CIUS2ll_r = vel_struct_func(dul, r, rbins=rbins,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         S2tr_r, CILS2tr_r, CIUS2tr_r = vel_struct_func(dut, r, rbins=rbins,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         S3_r, CILS3_r, CIUS3_r = vel_struct_func(dul*(du**2+dv**2), r, order=1, rbins=rbins,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         K2_r, CILK2_r, CIUK2_r = rel_diff(r, rbins=rbins,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         FAGR_r, CILFAGR_r, CIUFAGR_r = famp_growth_rate(r, rbins=rbins,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         initm_r, CILinitm_r, CIUinitm_r = init_memory(rx, ry, du, dv, r, rbins=rbins,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         aniso_r, CILaniso_r, CIUaniso_r = anisotropy(rx, ry, rxy, r, rbins=rbins,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         LVC_r, CILLVC_r, CIULVC_r = lagr_vel_corr(uv, vmi, vmj, r, rbins=rbins,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         ku_r, CILku_r, CIUku_r = kurtosis(r, rbins=rbins,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         CVE_r, CILCVE_r, CIUCVE_r = cen_vul_exp(r, rbins=rbins,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         FSLE_r, CILFSLE_r, CIUFSLE_r = fsize_lyap_exp(r, rbins=rbins,
-                                          mean_at=mean_at, ensemble=ensemble)
+                                          mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         CIST_r, CILCIST_r, CIUCIST_r = cumul_inv_sep_time(r, rbins=rbins, lower=0.10, upper=0.90,
-                                          maskout=[1e-8, 5e3], mean_at=mean_at, ensemble=ensemble)
+                                          maskout=[1e-8, 5e3], mean_at=mean_at, ensemble=ensemble, nproc=nproc)
         pbar.update(1)
         num_r = sum_at_rbin(xr.where(np.isnan(r), 0, 1), r, rbins=rbins)
         

@@ -6,7 +6,7 @@ Created on 2024.11.20
 Copyright 2018. All rights reserved. Use is subject to license terms.
 """
 import numpy as np
-from .utils import hist_mean
+from .utils import mean_at_rbin
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 
@@ -17,10 +17,12 @@ Some plot functions are defined below
 _labels = ['$10^{-12}$', '$10^{-11}$', '$10^{-10}$', '$10^{-9}$', '$10^{-8}$',
            '$10^{-7}$' , '$10^{-6}$' , '$10^{-5}$' , '$10^{-4}$', '$10^{-3}$',
            '$10^{-2}$' , '$10^{-1}$' , '$10^{0}$'  , '$10^{1}$' , '$10^{2}$' ,
-           '$10^{3}$'  , '$10^{4}$'  , '$10^{5}$'  , '$10^{6}$' , '$10^{7}$' , '$10^{8}$']
+           '$10^{3}$'  , '$10^{4}$'  , '$10^{5}$'  , '$10^{6}$' , '$10^{7}$' ,
+           '$10^{8}$'  , '$10^{9}$'  , '$10^{10}$' , '$10^{11}$', '$10^{12}$']
 
 _ticks  = [1e-12, 1e-11, 1e-10, 1e-9, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3 ,
-           1e-2 , 1e-1 , 1e0  , 1e1 , 1e2 , 1e3 , 1e4 , 1e5 , 1e6 , 1e7  , 1e8]
+           1e-2 , 1e-1 , 1e0  , 1e1 , 1e2 , 1e3 , 1e4 , 1e5 , 1e6 , 1e7  ,
+           1e8  , 1e9  , 1e10 , 1e11, 1e12]
 
 
 def panel(ax, vs, avs, title, yscale, xscale, ylim, xlim, ylabel, xlabel=None, loc='ll',
@@ -115,12 +117,12 @@ def _panel_vars(ax, vs, avs, timebased=True, rebins=None):
     
     for v in vs:
         v      = v.copy()
-        r      = v.pop('r')
+        r      = v.pop('r') if not timebased else None
         var    = v.pop('var')
         label  = v.pop('label')
         method = v.pop('method')
         CIs    = v.pop('CIs') if 'CIs' in v else None
-        xaxis  = var['time'] if timebased else r
+        xaxis  = var['rtime'] if timebased else r
         color  = v['color'] if 'color' in v else None
         if color == None and 'edgecolor' in v:
             color = v['edgecolor']
@@ -129,26 +131,26 @@ def _panel_vars(ax, vs, avs, timebased=True, rebins=None):
         
         if rebins is not None:
             if 'r' in var.dims:
-                var = hist_mean(var, var['r'], rebins.values)
-            elif 'sep' in var.dims:
-                var = hist_mean(var, var['sep'], rebins.values)
+                var = mean_at_rbin(var, var['r'], rebins.values)
+            elif 'rbin' in var.dims:
+                var = mean_at_rbin(var, var['rbin'], rebins.values)
             else:
-                var = hist_mean(var, xaxis, rebins.values)
+                var = mean_at_rbin(var, xaxis, rebins.values)
         
         tmp = var.name
         var = var.rename('')
 
         if method == 'plot':
             if rebins is None:
-                if 'sep' in var.dims:
-                    lgd.append(ax.plot(var['sep'], var, label=label, **v))
+                if 'rbin' in var.dims:
+                    lgd.append(ax.plot(var['rbin'], var, label=label, **v))
                 elif 'r' in var.dims:
                     lgd.append(ax.plot(var['r'], var, label=label, **v))
                 else:
                     lgd.append(ax.plot(xaxis, var, label=label, **v))
             else:
-                if 'sep' in var.dims:
-                    lgd.append(ax.plot(var['sep'], var, label=label, **v))
+                if 'rbin' in var.dims:
+                    lgd.append(ax.plot(var['rbin'], var, label=label, **v))
                 else:
                     lgd.append(ax.plot(var['r'], var, label=label, **v))
 
@@ -156,21 +158,22 @@ def _panel_vars(ax, vs, avs, timebased=True, rebins=None):
                 if rebins is None:
                     ax.fill_between(xaxis, CIs[0], CIs[1], alpha=alpha, color=color, zorder=-5)
                 else:
-                    CIL = hist_mean(CIs[0], xaxis, rebins.values)
-                    CIU = hist_mean(CIs[1], xaxis, rebins.values)
-                    ax.fill_between(var['sep'], CIL, CIU, alpha=alpha, color=color, zorder=-5)
+                    CIL = mean_at_rbin(CIs[0], xaxis, rebins.values)
+                    CIU = mean_at_rbin(CIs[1], xaxis, rebins.values)
+                    ax.fill_between(var['rbin'], CIL, CIU, alpha=alpha, color=color, zorder=-5)
             
         elif method == 'scatter':
             if rebins is None:
-                if 'sep' in var.dims:
-                    lgd.append(ax.scatter(var['sep'], var, label=label, **v))
+                if 'rbin' in var.dims:
+                    lgd.append(ax.scatter(var['rbin'], var, label=label, **v))
                 elif 'r' in var.dims:
                     lgd.append(ax.scatter(var['r'], var, label=label, **v))
                 else:
+                    print(v)
                     lgd.append(ax.scatter(xaxis, var, label=label, **v))
             else:
-                if 'sep' in var.dims:
-                    lgd.append(ax.scatter(var['sep'], var, label=label, **v))
+                if 'rbin' in var.dims:
+                    lgd.append(ax.scatter(var['rbin'], var, label=label, **v))
                 else:
                     lgd.append(ax.scatter(var['r'], var, label=label, **v))
 
@@ -178,9 +181,9 @@ def _panel_vars(ax, vs, avs, timebased=True, rebins=None):
                 if rebins is None:
                     ax.fill_between(xaxis, CIs[0], CIs[1], alpha=alpha, color=color, zorder=-5)
                 else:
-                    CIL = hist_mean(CIs[0], xaxis, rebins.values)
-                    CIU = hist_mean(CIs[1], xaxis, rebins.values)
-                    ax.fill_between(var['sep'], CIL, CIU, alpha=alpha, color=color, zorder=-5)
+                    CIL = mean_at_rbin(CIs[0], xaxis, rebins.values)
+                    CIU = mean_at_rbin(CIs[1], xaxis, rebins.values)
+                    ax.fill_between(var['rbin'], CIL, CIU, alpha=alpha, color=color, zorder=-5)
             
         else:
             raise Exception(f'invalid method {method}')
@@ -189,11 +192,11 @@ def _panel_vars(ax, vs, avs, timebased=True, rebins=None):
     
     for v in avs:
         v      = v.copy()
-        r      = v.pop('r')
+        r      = v.pop('r') if not timebased else None
         var    = v.pop('var')
         label  = v.pop('label')
         method = v.pop('method')
-        xaxis  = var['time'] if timebased else r
+        xaxis  = var['rtime'] if timebased else r
         
         tmp = var.name
         var = var.rename('')
@@ -274,19 +277,19 @@ def _add_axes(ax, lgd, title, yscale, xscale, ylim, xlim, ylabel, xlabel=None, l
         ax.set_xticks(_ticks)
         ax.set_xticklabels(_labels, fontsize=fontsize-1)
         ax.set_xlim(xlim)
-        ax.tick_params(axis='x', labelsize=fontsize-1)
+        #ax.tick_params(axis='x', labelsize=fontsize-1)
 
         if yscale == 'log':
             ax.set_yscale('log')
             ax.set_yticks(_ticks)
             ax.set_yticklabels(_labels, fontsize=fontsize-1)
             ax.set_ylim(ylim)
-            ax.set_ylabel(ylabel)
+            ax.set_ylabel(ylabel, fontsize=fontsize-1)
         elif yscale == 'linear':
             ax.set_yscale('linear')
             ax.set_ylim(ylim)
             ax.set_ylabel(ylabel, fontsize=fontsize-1)
-            ax.tick_params(axis='x', labelsize=fontsize-1)
+            ax.tick_params(axis='y', labelsize=fontsize-1)
         else:
             raise Exception('unsupported yscale: '+yscale)
     
@@ -317,14 +320,14 @@ def _add_axes(ax, lgd, title, yscale, xscale, ylim, xlim, ylabel, xlabel=None, l
         ax.set_xticklabels(_labels, fontsize=fontsize-1)
         ax.set_xlim((xlim[0], thre))
         ax.spines['right'].set_visible(False)
-        ax.set_xlabel(xlabel)
+        ax.set_xlabel(xlabel, fontsize=fontsize-1)
         ax.tick_params(axis='x', labelsize=fontsize-1)
         
         if yscale == 'log':
             ax.set_yscale('log')
             ax.set_yticks(_ticks)
             ax.set_yticklabels(_labels, fontsize=fontsize-1)
-            ax.set_ylabel(ylabel)
+            ax.set_ylabel(ylabel, fontsize=fontsize-1)
             ax.set_ylim(ylim)
         elif yscale =='linear':
             ax.set_yscale('linear')
@@ -351,11 +354,11 @@ def _add_axes(ax, lgd, title, yscale, xscale, ylim, xlim, ylabel, xlabel=None, l
         else:
             raise Exception('unsupported yscale: '+yscale)
 
-        ax2.set_ylabel('')
+        ax2.set_ylabel('', fontsize=fontsize-1)
         ax2.set_yticks([], minor=True)
         ax2.set_yticklabels([], fontsize=0)
         ax2.spines['left'].set_visible(False)
-        ax2.set_xlabel('')
+        ax2.set_xlabel('', fontsize=fontsize-1)
     else:
         raise Exception('unsupported xscale: '+xscale)
 

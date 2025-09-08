@@ -17,10 +17,12 @@ Some plot functions are defined below
 _labels = ['$10^{-12}$', '$10^{-11}$', '$10^{-10}$', '$10^{-9}$', '$10^{-8}$',
            '$10^{-7}$' , '$10^{-6}$' , '$10^{-5}$' , '$10^{-4}$', '$10^{-3}$',
            '$10^{-2}$' , '$10^{-1}$' , '$10^{0}$'  , '$10^{1}$' , '$10^{2}$' ,
-           '$10^{3}$'  , '$10^{4}$'  , '$10^{5}$'  , '$10^{6}$' , '$10^{7}$' , '$10^{8}$']
+           '$10^{3}$'  , '$10^{4}$'  , '$10^{5}$'  , '$10^{6}$' , '$10^{7}$' ,
+           '$10^{8}$'  , '$10^{9}$'  , '$10^{10}$' , '$10^{11}$', '$10^{12}$']
 
 _ticks  = [1e-12, 1e-11, 1e-10, 1e-9, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3 ,
-           1e-2 , 1e-1 , 1e0  , 1e1 , 1e2 , 1e3 , 1e4 , 1e5 , 1e6 , 1e7  , 1e8]
+           1e-2 , 1e-1 , 1e0  , 1e1 , 1e2 , 1e3 , 1e4 , 1e5 , 1e6 , 1e7  ,
+           1e8  , 1e9  , 1e10 , 1e11, 1e12]
 
 
 def panel(ax, vs, avs, title, yscale, xscale, ylim, xlim, ylabel, xlabel=None, loc='ll',
@@ -115,7 +117,7 @@ def _panel_vars(ax, vs, avs, timebased=True, rebins=None):
     
     for v in vs:
         v      = v.copy()
-        r      = v.pop('r')
+        r      = v.pop('r') if not timebased else None
         var    = v.pop('var')
         label  = v.pop('label')
         method = v.pop('method')
@@ -189,7 +191,7 @@ def _panel_vars(ax, vs, avs, timebased=True, rebins=None):
     
     for v in avs:
         v      = v.copy()
-        r      = v.pop('r')
+        r      = v.pop('r') if not timebased else None
         var    = v.pop('var')
         label  = v.pop('label')
         method = v.pop('method')
@@ -274,7 +276,7 @@ def _add_axes(ax, lgd, title, yscale, xscale, ylim, xlim, ylabel, xlabel=None, l
         ax.set_xticks(_ticks)
         ax.set_xticklabels(_labels, fontsize=fontsize-1)
         ax.set_xlim(xlim)
-        ax.tick_params(axis='x', labelsize=fontsize-1)
+        #ax.tick_params(axis='x', labelsize=fontsize-1)
 
         if yscale == 'log':
             ax.set_yscale('log')
@@ -286,7 +288,7 @@ def _add_axes(ax, lgd, title, yscale, xscale, ylim, xlim, ylabel, xlabel=None, l
             ax.set_yscale('linear')
             ax.set_ylim(ylim)
             ax.set_ylabel(ylabel, fontsize=fontsize-1)
-            ax.tick_params(axis='x', labelsize=fontsize-1)
+            ax.tick_params(axis='y', labelsize=fontsize-1)
         else:
             raise Exception('unsupported yscale: '+yscale)
     
@@ -317,7 +319,7 @@ def _add_axes(ax, lgd, title, yscale, xscale, ylim, xlim, ylabel, xlabel=None, l
         ax.set_xticklabels(_labels, fontsize=fontsize-1)
         ax.set_xlim((xlim[0], thre))
         ax.spines['right'].set_visible(False)
-        ax.set_xlabel(xlabel)
+        ax.set_xlabel(xlabel, fontsize=fontsize-1)
         ax.tick_params(axis='x', labelsize=fontsize-1)
         
         if yscale == 'log':
