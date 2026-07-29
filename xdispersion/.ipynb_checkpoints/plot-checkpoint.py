@@ -169,7 +169,6 @@ def _panel_vars(ax, vs, avs, timebased=True, rebins=None):
                 elif 'r' in var.dims:
                     lgd.append(ax.scatter(var['r'], var, label=label, **v))
                 else:
-                    print(v)
                     lgd.append(ax.scatter(xaxis, var, label=label, **v))
             else:
                 if 'rbin' in var.dims:

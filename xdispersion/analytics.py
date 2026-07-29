@@ -12,19 +12,21 @@ from scipy.special import i0, ive, gammaincinv, gamma
 
 
 """
-This contains the analytical predictions of several measures
-of relative dispersion in different turbulent regimes:
+This contains the analytical predictions of several measures of
+relative dispersion in different turbulent regimes based on the
+value of spectral slope n (in K^n where K is total wavenumber):
 
-K^-3  : -3 or nonlocal or Lundgren regime
-K^-2  : -2 regime (similar to GM internal wave spectrum???)
-K^-5/3: -5/3 or local or Richardson regime
-decorr: diffusive or asymptotic or Rayleigh regime
+K^-3     : n<= -3 or nonlocal or Lundgren regime
+K^-2     : n = -2 regime (similar to GM internal-wave spectrum???)
+K^-5/3   : n = -5/3 or local or Richardson regime
+K^n      : -3<n<-1 generalized local regime, e.g., K^-2 and K^-5/3 cases.
+diffusive: velocity de-correlated or asymptotic or Rayleigh regime
 
 The analytical predictions are separated into full ones, and
 asymptotic ones which are simpler than the full ones.
 
 All the predictions are derived from the full expressions of
-p.d.f. of pair separation under different regimes.  Since the
+p.d.f. of pair separation in different regimes.  Since the
 full solutions of some measures are too complex to write out,
 one may get the full predictions by numerical integration of
 the full expressions of the p.d.f.
@@ -37,14 +39,15 @@ def ana_r2(
 ) -> xr.DataArray:
     """Calculate analytic relative dispersion
     
-    Four regimes are available:
-      * -3   | nonlocal | Lundgren   regime -> r2(t) ~ exp(t)
-      * -2   | local    | Richardson regime -> r2(t) ~ t^(4)
-      * -5/3 | local    | GM         regime -> r2(t) ~ t^(3)
-      * diffusive       | rayleigh   regime -> r2(t) ~ t^(1)
+    Regimes based on the spectral slope n (in K^n) are available:
+      * n = -3      : nonlocal or Lundgren regime -> r2(t) ~ exp(t)
+      * n = -2      : local regime                -> r2(t) ~ t^(4)
+      * n = -5/3    : local or Richardson regime  -> r2(t) ~ t^(3)
+      * generallocal: all local regimes determined by n = params['slope']
+      * diffusive   : decorrelated or Rayleigh regime -> r2(t) ~ t^(1)
 
-    Note that the asymptotic prediction uses "-a" suffix
-    after regime str e.g., ['Lundgren-a'].
+    Note that the asymptotic prediction uses "-a" suffix after
+    regime str e.g., ['-3-a', 'generallocal-a', 'diffusive-a'].
     
     Parameters
     ----------
@@ -52,9 +55,9 @@ def ana_r2(
         A given time.
     params: dict
         Parameters used in the expression of each regime.
-        Should be ['T', 'beta', 'lambda', 'k2']
+        Should be ['T', 'beta', 'lambda', 'kappa', 'slope']
     regime: str
-        Regime name shown above e.g., ['nonlocal', '-5/3', ...]
+        Regime name e.g., ['-3', '-2', '-5/3', 'diffusive', 'generallocal']
     
     Returns
     -------
@@ -91,19 +94,74 @@ def ana_r2(
         newF = np.frompyfunc(func, 2, 1)
         r2   = newF(tmp, coeff).astype(ts.dtype)
         
-    elif regime.lower() in ['richardson-a', 'local-a', '-5/3-a']:
+    elif regime.lower() in ['generallocal']:
+        def func(a, b, z): # expression
+            return  mpm.hyp1f1(a, b, z)
+        
+        slp = params['slope']
+        k2  = params['kappa']
+        b   = (np.abs(slp) + 1.0) / 2.0
+        
+        if b < 1 or b > 2:
+            raise Exception(f'invalid slope: {slp}, should be within (-3, -1)')
+            
+        if k2 <= 0:
+            raise ValueError(f'k2 {k2} should be a positive number')
+        
+        # tmp parameters
+        delta = 2 - b  # 2-a
+        exp1 = 2 / delta  # 2/(2-a)
+        exp2 = 4 / delta  # 4/(2-a)
+        
+        # constants
+        gamma_term = gamma(exp2) / gamma(exp1)
+        power_term = (delta ** exp2) * (k2 ** exp1)
+        
+        # parameter z for hyp1f1
+        z = r0 ** delta / ((delta ** 2) * k2 * t)
+        
+        # M(-exp1; exp1; -z)）
+        newF = np.frompyfunc(func, 3, 1)
+        hyp_term = newF(-exp1, exp1, -z.values).astype(ts.dtype)
+
+        # relative dispersion
+        r2 = power_term * (ts ** exp1) * gamma_term * hyp_term
+        
+    elif regime.lower() in ['generallocal-a']:
+        slp = params['slope']
+        k2  = params['kappa']
+        b = (np.abs(slp) + 1.0) / 2.0
+        
+        if b < 1 or b > 2:
+            raise Exception(f'invalid slope: {slp}, should be within (-3, -1)')
+            
+        if k2 <= 0:
+            raise ValueError(f'k2 {k2} should be a positive number')
+        
+        # tmp parameters
+        delta = 2 - b  # 2-a
+        exp1 = 2 / delta  # 2/(2-a)
+        exp2 = 4 / delta  # 4/(2-a)
+        
+        # constants
+        gamma_term = gamma(exp2) / gamma(exp1)
+        power_term = (delta ** exp2) * (k2 ** exp1)
+
+        # relative dispersion
+        r2 = power_term * (ts ** exp1) * gamma_term
+        
+    elif regime.lower() in ['richardson-a', '-5/3-a']:
         r2 = 5.2675 * (params['beta'] * ts) **3.0
         
-    elif regime.lower() in ['rayleigh', 'diffusive']:
-        r2 = 4.0 * params['k2'] * ts + r0**2.0
+    elif regime.lower() in ['diffusive']:
+        r2 = 4.0 * params['kappa'] * ts + r0**2.0
         
-    elif regime.lower() in ['rayleigh-a', 'diffusive-a']:
-        r2 = 4.0 * params['k2'] * ts
+    elif regime.lower() in ['diffusive-a']:
+        r2 = 4.0 * params['kappa'] * ts
         
     else:
         raise Exception(f'invalid regime {regime}, '+\
-                        'should be [Lundgren, Richardson, Rayleigh], '+\
-                        'or [local, nonlocal, -3, -2, -5/3]')
+                        'should be [-3, -2, -5/3, generallocal, diffusive]')
 
     if t[0] == 0:
         r2[0] = r0 ** 2.0
@@ -118,11 +176,15 @@ def ana_Ku(
 ) -> xr.DataArray:
     """Calculate analytic kurtosis
     
-    Four regimes are available:
-      * -3   | nonlocal | Lundgren   regime -> Ku(t) ~ exp(t)
-      * -2   | local    | Richardson regime -> Ku(t) ~ 9.4286
-      * -5/3 | local    | GM         regime -> Ku(t) ~ 5.6
-      * diffusive       | rayleigh   regime -> Ku(t) ~ 2
+    Regimes based on the spectral slope n (in K^n) are available:
+      * n = -3      : nonlocal or Lundgren regime -> Ku(t) ~ exp(t)
+      * n = -2      : local regime                -> Ku(t) ~ 9.4286
+      * n = -5/3    : local or Richardson regime  -> Ku(t) ~ 5.6
+      * generallocal: all local regimes determined by n = params['slope']
+      * diffusive   : decorrelated or Rayleigh regime -> Ku(t) ~ 2
+
+    Note that the asymptotic prediction uses "-a" suffix after
+    regime str e.g., ['-3-a', 'generallocal-a', 'diffusive-a'].
     
     Parameters
     ----------
@@ -130,9 +192,9 @@ def ana_Ku(
         A given time.
     params: dict
         Parameters used in the expression of each regime.
-        Should be ['T', 'beta', 'lambda', 'k2']
+        Should be ['T', 'beta', 'lambda', 'kappa']
     regime: str
-        Regime name shown above e.g., ['nonlocal', '-5/3', ...]
+        Regime name e.g., ['-3', '-2', '-5/3', 'diffusive', 'generallocal']
     
     Returns
     -------
@@ -153,10 +215,10 @@ def ana_Ku(
         lmbd = params['lambda']
         tmp  = (4.0 * r0**(1.0/2.0)) / (lmbd * ts)
         newF = np.frompyfunc(func, 1, 1)
-        Ku   = newF(tmp).astype(r.dtype)
+        Ku   = newF(tmp).astype(ts.dtype)
         
     elif regime.lower() in ['-2-a']:
-        Ku = ts - ts + 9.4286
+        Ku = ts - ts + 9.428571
 
     elif regime.lower() in ['richardson', 'local', '-5/3']:
         def func(tmp): # expression, use mpm instead of scipy to avoid overflow
@@ -167,14 +229,66 @@ def ana_Ku(
         beta = params['beta']
         tmp  = (9.0 * r0**(2.0/3.0)) / (4.0 * beta * ts)
         newF = np.frompyfunc(func, 1, 1)
-        Ku   = newF(tmp).astype(r.dtype)
+        Ku   = newF(tmp).astype(ts.dtype)
+
+    elif regime.lower() in ['generallocal']:
+        def func(a, b, z): # expression
+            return  mpm.hyp1f1(a, b, z)
+        
+        r0  = params['r0']
+        slp = params['slope']
+        k2  = params['kappa']
+        b   = (np.abs(slp) + 1.0) / 2.0 # diffusivity scaling K(r) = k2 r^b
+        
+        if b < 1 or b > 2:
+            raise Exception(f'invalid slope: {slp}, should be within (-3, -1)')
+            
+        if k2 <= 0:
+            raise ValueError(f'k2 {k2} should be a positive number')
+        
+        # tmp parameters
+        delta = 2 - b  # 2-b
+        tmp = 2 / delta  # 2/(2-b)
+        z = (r0 ** delta) / ((delta ** 2) * k2 * ts)  # nondimensional z
+        
+        # M(-γ, γ, -z) 、M(-2γ, γ, -z)
+        newF = np.frompyfunc(func, 3, 1)
+        hyp1 = newF(  -tmp, tmp, -z.values).astype(ts.dtype)
+        hyp2 = newF(-2*tmp, tmp, -z.values).astype(ts.dtype)
+        
+        # gamma_terms：Γ(3γ)Γ(γ)/[Γ(2γ)]^2
+        gamma_term = (gamma(3 * tmp) * gamma(tmp)) / (gamma(2 * tmp) ** 2)
+        
+        # kurtosis
+        Ku = ts - ts + gamma_term * (hyp2 / (hyp1 ** 2))
+
+    elif regime.lower() in ['generallocal-a']:
+        r0  = params['r0']
+        slp = params['slope']
+        k2  = params['kappa']
+        b   = (np.abs(slp) + 1.0) / 2.0 # diffusivity scaling K(r) = k2 r^b
+        
+        if b < 1 or b > 2:
+            raise Exception(f'invalid slope: {slp}, should be within (-3, -1)')
+            
+        if k2 <= 0:
+            raise ValueError(f'k2 {k2} should be a positive number')
+        
+        # tmp parameters
+        tmp = 2 / (2 - b)  # 2/(2-b)
+        
+        # gamma_terms：Γ(3γ)Γ(γ)/[Γ(2γ)]^2
+        gamma_term = (gamma(3 * tmp) * gamma(tmp)) / (gamma(2 * tmp) ** 2)
+        
+        # kurtosis
+        Ku = ts - ts + gamma_term
         
     elif regime.lower() in ['richardson-a', 'local-a', '-5/3-a']:
         Ku = ts - ts + 5.6
 
     elif regime.lower() in ['rayleigh', 'diffusive']:
         r0 = params['r0']
-        k2 = params['k2']
+        k2 = params['kappa']
 
         tmp = r0 ** 2 / (64 * k2 * ts)
         Ku  = (tmp**2/16 + tmp + 1/32) / (2*tmp + 1/8)**2
@@ -184,8 +298,7 @@ def ana_Ku(
 
     else:
         raise Exception(f'invalid regime {regime}, '+\
-                        'should be [Lundgren, Richardson, Rayleigh], '+\
-                        'or [local, nonlocal, -3, -2, -5/3]')
+                        'should be [-3, -2, -5/3, generallocal, diffusive]')
     
     return Ku.rename('Ku_' + regime[:2])
 
@@ -197,11 +310,12 @@ def ana_K2(
 ) -> xr.DataArray:
     """Calculate analytic relative diffusivity
     
-    Four regimes are available:
-      * -3   | nonlocal | Lundgren   regime -> K2(r) ~ T^-1   r^(2)
-      * -2   | local    | Richardson regime -> K2(r) ~ beta   r^(4/3)
-      * -5/3 | local    | GM         regime -> K2(r) ~ lambda r^(3/2)
-      * diffusive       | rayleigh   regime -> K2(r) ~ r^(0)
+    Regimes based on the spectral slope n (in K^n) are available:
+      * n = -3      : nonlocal or Lundgren regime -> K2(r) ~ T^-1   r^(2)
+      * n = -2      : local regime                -> K2(r) ~ beta   r^(4/3)
+      * n = -5/3    : local or Richardson regime  -> K2(r) ~ lambda r^(3/2)
+      * generallocal: all local regimes determined by n = params['slope']
+      * diffusive   : decorrelated or Rayleigh regime -> K2(r) ~ r^(0)
     
     Parameters
     ----------
@@ -209,9 +323,9 @@ def ana_K2(
         A given separation.
     params: dict
         Parameters used in the expression of each regime.
-        Should be ['T', 'beta', 'lambda', 'k2']
+        Should be ['T', 'beta', 'lambda', 'kappa']
     regime: str
-        Regime name shown above e.g., ['nonlocal', '-5/3', ...]
+        Regime name e.g., ['-3', '-2', '-5/3', 'diffusive', 'generallocal']
     
     Returns
     -------
@@ -221,15 +335,20 @@ def ana_K2(
     if regime.lower() in ['lundgren', 'nonlocal', '-3']:
         K2 = 4.0 / params['T'] * r**2.0
     elif regime.lower() in ['-2']:
-        K2 = 2.69178 * params['lambda'] * r **(3.0/2.0)
+        K2 = 2.6917816354776476 * params['lambda'] * r **(3.0/2.0)
     elif regime.lower() in ['richardson', 'local', '-5/3']:
-        K2 = 2.6099 * params['beta'] * r **(4.0/3.0)
+        K2 = 2.609911760779243 * params['beta'] * r **(4.0/3.0)
+    elif regime.lower() in ['generallocal']:
+        a = np.abs(params['slope'])
+        b = (a + 1.0) / 2.0
+        R = 2.0 / (2.0 - b)
+        coeff = (2-b) * (gamma(2*R) / gamma(R)) **(1/R)
+        K2 = coeff * params['kappa'] * r **b
     elif regime.lower() in ['rayleigh', 'diffusive']:
-        K2 = r - r + 2.0 * params['k2']
+        K2 = r - r + 2.0 * params['kappa']
     else:
         raise Exception(f'invalid regime {regime}, '+\
-                        'should be [Lundgren, Richardson, Rayleigh], '+\
-                        'or [local, nonlocal, -3, -2, -5/3]')
+                        'should be [-3, -2, -5/3, generallocal, diffusive]')
     
     return K2.rename('K2_' + regime[:2])
 
@@ -241,11 +360,12 @@ def ana_S2(
 ) -> xr.DataArray:
     """Calculate scaling of 2nd-order velocity structure function
     
-    Four regimes are available:
-      * -3   | nonlocal | Lundgren   regime -> S2(r) ~ r^(2)
-      * -2   | local    | Richardson regime -> S2(r) ~ r^(1)
-      * -5/3 | local    | GM         regime -> S2(r) ~ r^(2/3)
-      * diffusive       | rayleigh   regime -> S2(r) ~ r^(0)
+    Regimes based on the spectral slope n (in K^n) are available:
+      * n = -3      : nonlocal or Lundgren regime -> S2(r) ~ r^(2)
+      * n = -2      : local regime                -> S2(r) ~ r^(1)
+      * n = -5/3    : local or Richardson regime  -> S2(r) ~ r^(2/3)
+      * generallocal: all local regimes determined by n = params['slope']
+      * diffusive   : decorrelated or Rayleigh regime -> S2(r) ~ r^(0)
 
     Note that this is scaling only.  Params can be arbitary here.
     
@@ -255,9 +375,9 @@ def ana_S2(
         A given separation.
     params: dict
         Parameters used in the expression of each regime.
-        Should be ['T', 'beta', 'lambda', 'k2']
+        Should be ['T', 'beta', 'lambda', 'kappa']
     regime: str
-        Regime name shown above e.g., ['nonlocal', '-5/3', ...]
+        Regime name e.g., ['-3', '-2', '-5/3', 'diffusive', 'generallocal']
     
     Returns
     -------
@@ -271,11 +391,12 @@ def ana_S2(
     elif regime.lower() in ['richardson', 'local', '-5/3']:
         S2 = params['beta'] * r **(2.0/3.0)
     elif regime.lower() in ['rayleigh', 'diffusive']:
-        S2 = r - r + params['k2']
+        S2 = r - r + params['kappa']
+    elif regime.lower() in ['generallocal']:
+        S2 = r **(-params['slope']-1)
     else:
         raise Exception(f'invalid regime {regime}, '+\
-                        'should be [Lundgren, Richardson, Rayleigh], '+\
-                        'or [local, nonlocal, -3, -2, -5/3]')
+                        'should be [-3, -2, -5/3, generallocal, diffusive]')
     
     return S2.rename('S2_' + regime[:2])
 
@@ -287,11 +408,12 @@ def ana_S3(
 ) -> xr.DataArray:
     """Calculate analytic 3rd-order velocity structure function
     
-    Four regimes are available:
-      * -3   | nonlocal | Lundgren   regime -> S2(r) ~ r^(3)
-      * -2   | local    | Richardson regime -> S2(r) ~ r^(3/2)
-      * -5/3 | local    | GM         regime -> S2(r) ~ r^(1)
-      * diffusive       | rayleigh   regime -> S2(r) ~ r^(0) ???
+    Regimes based on the spectral slope n (in K^n) are available:
+      * n = -3      : nonlocal or Lundgren regime -> S3(r) ~ r^(3)
+      * n = -2      : local regime                -> S3(r) ~ r^(3/2)
+      * n = -5/3    : local or Richardson regime  -> S3(r) ~ r^(1)
+      * generallocal: all local regimes determined by n = params['slope']
+      * diffusive   : decorrelated or Rayleigh regime -> S3(r) ~ r^(0) ???
 
     Note that this is scaling only.  Params can be arbitary here.
     
@@ -301,9 +423,9 @@ def ana_S3(
         A given separation.
     params: dict
         Parameters used in the expression of each regime.
-        Should be ['T', 'beta', 'lambda', 'k2']
+        Should be ['T', 'beta', 'lambda', 'kappa']
     regime: str
-        Regime name shown above e.g., ['nonlocal', '-5/3', ...]
+        Regime name e.g., ['-3', '-2', '-5/3', 'diffusive', 'generallocal']
     
     Returns
     -------
@@ -317,11 +439,12 @@ def ana_S3(
     elif regime.lower() in ['richardson', 'local', '-5/3']:
         S3 = params['beta'] * r **1.0
     elif regime.lower() in ['rayleigh', 'diffusive']:
-        S3 = r - r + params['k2']
+        S3 = r - r + params['kappa']
+    elif regime.lower() in ['generallocal']:
+        S3 = r **(1.5*(-params['slope']-1))
     else:
         raise Exception(f'invalid regime {regime}, '+\
-                        'should be [Lundgren, Richardson, Rayleigh], '+\
-                        'or [local, nonlocal, -3, -2, -5/3]')
+                        'should be [-3, -2, -5/3, generallocal, diffusive]')
     
     return S3.rename('S3_' + regime[:2])
 
@@ -334,13 +457,12 @@ def ana_PDF(
 ) -> xr.DataArray:
     """Calculate analytic PDF of pair separation
     
-    Five regimes are available:
-      * -3   | nonlocal | Lundgren   regime
-      * -2   | local    | Richardson regime
-      * -5/3 | local    | GM         regime
-      * diffusive       | rayleigh   regime
-      * generalized regime, covering (but not limited to)
-        the first three regimes
+    Regimes based on the spectral slope n (in K^n) are available:
+      * n = -3      : nonlocal or Lundgren regime
+      * n = -2      : local regime
+      * n = -5/3    : local or Richardson regime
+      * generallocal: all local regimes determined by n = params['slope']
+      * diffusive   : decorrelated or Rayleigh regime
     
     Parameters
     ----------
@@ -350,11 +472,11 @@ def ana_PDF(
         A given time
     params: dict
         Parameters used in the expression of each regime.
-        Should be ['T', 'beta', 'lambda', 'k2', 'generalized'].
+        Should be ['T', 'beta', 'lambda', 'kappa', 'slope'].
         Additional ones are ['r0', 'slope'], means inital
-        separation and spectral slope (e.g., -3, -2, -5/3).
+        separation and spectral slope n (e.g., -3, -2, -5/3).
     regime: str
-        Regime name shown above e.g., ['nonlocal', '-5/3', ...]
+        Regime name shown above e.g., ['-3', '-2', '-5/3', 'generallocal', 'diffusive']
     
     Returns
     -------
@@ -364,7 +486,7 @@ def ana_PDF(
     ts = t
     r0 = params['r0']
     
-    if regime.lower() in ['lundgren', 'nonlocal', '-3']:
+    if regime.lower() in ['-3', 'lundgren', 'nonlocal']:
         TL  = params['T']
         t_T = ts / TL
         PDF = 1.0 / (4.0 * np.pi**1.5 * t_T**0.5 * r0**2) * np.exp(
@@ -386,7 +508,7 @@ def ana_PDF(
         PDF = 1.0 / (4.0 * np.pi * 6.0 * (tmp / 4.0)**4.0)\
             * np.exp(-(4.0 * r**0.5) / tmp)
         
-    elif regime.lower() in ['richardson', 'local', '-5/3']:
+    elif regime.lower() in ['richardson', '-5/3']:
         beta = params['beta']
         R23 = 2.0 / 3.0
         R13 = 1.0 / 3.0
@@ -396,13 +518,13 @@ def ana_PDF(
             * ive(2, 9.0 * (r0 * r)**R13 / tmp * 2.0)\
             * np.exp(-(9.0 * (r0**R13 - r**R13)**2.0) / tmp)
         
-    elif regime.lower() in ['richardson-a', 'local-a', '-5/3-a']:
+    elif regime.lower() in ['-5/3-a', 'richardson-a']:
         beta = params['beta']
         tmp  = beta * ts
         PDF  = 1.5**5.0 / (4.0 * np.pi * tmp**3.0)\
              * np.exp(-(9.0 * r**(2.0/3.0)) / (4.0 * tmp))
         
-    elif regime.lower() in ['generalized']:
+    elif regime.lower() in ['generallocal']:
         lda = params['lambda']
         slp = params['slope']
         aa  = slp + 1.0
@@ -413,7 +535,7 @@ def ana_PDF(
             * ive(aa/bb, (8.0 / bb**2.0) * (r0 * r)**(bb/4.0) / tmp)\
             * np.exp(-((4.0/bb**2.0) * (r0**(bb/4.0) - r**(bb/4.0))**2) / tmp)
         
-    elif regime.lower() in ['generalized-a']:
+    elif regime.lower() in ['generallocal-a']:
         lda = params['lambda']
         slp = params['slope']
         bb  = 3.0 - slp
@@ -421,22 +543,21 @@ def ana_PDF(
         PDF = bb / (4.0 * np.pi * gamma(4.0/bb) * (bb**2.0 * tmp / 4.0)**(4.0/bb))\
             * np.exp(-(4.0/bb**2.0) * r**(bb/2) / tmp)
             
-    elif regime.lower() in ['rayleigh', 'diffusive']:
-        k2  = params['k2']
+    elif regime.lower() in ['diffusive']:
+        k2  = params['kappa']
         tmp = k2 * ts
         PDF = 1.0 / (4.0 * np.pi * tmp) * np.exp(
                 - (r0**2.0 + r**2.0) / (4.0 * tmp)
               ) * i0(r0 * r / (2.0 * tmp))
             
     elif regime.lower() in ['rayleigh-a', 'diffusive-a']:
-        k2  = params['k2']
+        k2  = params['kappa']
         tmp = 4.0 * k2 * ts
         PDF = 1.0 / (np.pi * tmp) * np.exp(- r**2.0 / tmp)
         
     else:
         raise Exception(f'invalid regime {regime}, '+\
-                        'should be [Lundgren, Richardson, Rayleigh], '+\
-                        'or [local, nonlocal, -3, -2, -5/3]')
+                        'should be [-3, -2, -5/3, generallocal, diffusive]')
     
     return PDF.rename('PDF_' + regime[:2])
 
@@ -449,11 +570,12 @@ def ana_CIST(
 ) -> xr.DataArray:
     """Calculate analytic CIST of pair separation
     
-    Four regimes are available:
-      * -3   | nonlocal | Lundgren   regime -> CIST(r) ~ r^(0)
-      * -2   | local    | Richardson regime -> CIST(r) ~ r^(-1/2)
-      * -5/3 | local    | GM         regime -> CIST(r) ~ r^(-2/3)
-      * diffusive       | rayleigh   regime -> CIST(r) ~ r^(-2)
+    Regimes based on the spectral slope n (in K^n) are available:
+      * n = -3      : nonlocal or Lundgren regime -> CIST(r) ~ r^(0)
+      * n = -2      : local regime                -> CIST(r) ~ r^(-1/2)
+      * n = -5/3    : local or Richardson regime  -> CIST(r) ~ r^(-2/3)
+      * generallocal: all local regimes determined by n = params['slope']
+      * diffusive   : decorrelated or Rayleigh regime -> CIST(r) ~ r^(-2)
     
     Parameters
     ----------
@@ -461,9 +583,9 @@ def ana_CIST(
         A given separation.
     params: dict
         Parameters used in the expression of each regime.
-        Should be ['T', 'beta', 'lambda', 'k2']
+        Should be ['T', 'beta', 'lambda', 'kappa']
     regime: str
-        Regime name shown above e.g., ['nonlocal', '-5/3', ...]
+        Regime name e.g., ['-3', '-2', '-5/3', 'diffusive', 'generallocal']
     
     Returns
     -------
@@ -479,24 +601,28 @@ def ana_CIST(
         TL = params['T']
         CIST = (r - r) + 2.0 / TL / np.log(al)
         
-    elif regime.lower() in ['-2-a']:
+    elif regime.lower() in ['-2']:
         lda  = params['lambda']
         CIST = lda * gammaincinv(4, 0.5) / (4.0 * (al**0.5 - 1.0)) * r**-0.5
         
-    elif regime.lower() in ['richardson-a', 'local-a', '-5/3-a']:
+    elif regime.lower() in ['richardson', 'local', '-5/3']:
         beta = params['beta']
         R23  = 2.0 / 3.0
         CIST = 4.0 * beta * gammaincinv(3, 0.5) / (9.0 * (al**R23 - 1.0)) * r**-R23
         
-    elif regime.lower() in ['rayleigh-a', 'diffusive-a']:
-        k2 = params['k2']
+    elif regime.lower() in ['generallocal']:
+        k2 = params['kappa']
+        slp = np.abs(params['slope'])
+        b = (slp + 1.0) / 2.0
+        CIST = (4 - 2 * b)**2 * k2 * gammaincinv(2/(2-b), 0.5) / (4*(al**(2-b) - 1)) * r**(b-2)
+        
+    elif regime.lower() in ['rayleigh', 'diffusive']:
+        k2 = params['kappa']
         CIST = 4.0 * k2 * np.log(2.0) / (al**2.0 - 1.0) * r**-2.0
         
     else:
         raise Exception(f'invalid regime {regime}, '+\
-                        'should be [Lundgren, Richardson-a, Rayleigh-a], '+\
-                        'or [local-a, nonlocal, -3, -2, -5/3], '+\
-                        'or there are no available regime')
+                        'should be [-3, -2, -5/3, generallocal, diffusive]')
     
     return CIST.rename('CIST_' + regime[:2])
 

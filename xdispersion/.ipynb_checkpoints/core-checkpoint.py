@@ -11,8 +11,10 @@ import itertools
 import dask.array as dsa
 from tqdm import tqdm
 from dask import delayed
+from dask.array import histogram
 from typing import Optional, List, Dict, Tuple, Literal
-from .utils import semilog_fit, geodist, get_overlap_indices
+from .utils import geodist, get_overlap_indices
+from .measures import rotational_divergent_components
 
 """
 Core classes are defined below
@@ -34,7 +36,7 @@ class RelativeDispersion(object):
         maxtlen: Optional[int] = -1 ,
         Rearth: Optional[float] = 6371.2,
         ragged: Optional[bool] = False,
-        chunk: int = -1,
+        chunk: Optional[int] = None,
     ) -> None:
         """
         Construct a RelativeDispersion class
@@ -65,8 +67,10 @@ class RelativeDispersion(object):
         ragged: boolean
             Whether the dataset is a ragged one.  Default is False so that
             each drifter is of the same length.
-        chunk: int
-            Chunk along pair dimension, in case of very large pair number.
+        chunk: int or None
+            Unified memory-control knob for pair-related operations:
+            - None: use in-memory path (no pair chunking);
+            - positive int: chunk size for pair/block processing.
         """
         self.xpos    = xpos
         self.ypos    = ypos
@@ -82,6 +86,10 @@ class RelativeDispersion(object):
         self.dtype   = ds_traj[uvel].dtype
         self.maxtlen = maxtlen
         self.chunk   = chunk
+
+        # Keep chunk semantics explicit for both ragged and non-ragged paths.
+        if self.chunk is not None and self.chunk < 1:
+            raise Exception('chunk should be a positive integer or None')
 
         times = ds_traj[time]
         if np.issubdtype(times.dtype, np.datetime64):
@@ -121,12 +129,23 @@ class RelativeDispersion(object):
         dset = self.ds_traj
         
         if self.ragged: # for ragged drifter dataset
-            pID , tlen, stim, r0, xpos0, ypos0,\
-            idxI, idxJ = self._get_all(dset[self.ID].values,
-                                       dset['rowsize'].values,
-                                       dset[self.xpos].values,
-                                       dset[self.ypos].values,
-                                       dset[self.time].values)
+            # chunk=None -> fully in-memory (legacy behavior);
+            # chunk>0    -> process ragged pairs block-by-block to cap memory peak.
+            if self.chunk is None:
+                pID , tlen, stim, r0, xpos0, ypos0,\
+                idxI, idxJ = self._get_all(dset[self.ID].values,
+                                           dset['rowsize'].values,
+                                           dset[self.xpos].values,
+                                           dset[self.ypos].values,
+                                           dset[self.time].values)
+            else:
+                pID , tlen, stim, r0, xpos0, ypos0,\
+                idxI, idxJ = self._get_all_chunked(dset[self.ID].values,
+                                                   dset['rowsize'].values,
+                                                   dset[self.xpos].values,
+                                                   dset[self.ypos].values,
+                                                   dset[self.time].values,
+                                                   self.chunk)
             
             # pair index, starts from 0 to the total number of pairs
             pair = np.arange(len(r0)  , dtype=np.int32)
@@ -158,67 +177,37 @@ class RelativeDispersion(object):
             #                         dims=("pair", "particle"), name='pID',
             #                         coords={'pair':np.arange(ntraj*(ntraj-1)/2, dtype='int32'),
             #                                 'particle':np.array([0,1], dtype='int32')})
-            pair_idx = self.get_pair_index(ntraj, self.chunk)
-            print(pair_idx)
-            xpos0 = dset[self.xpos].isel({self.time:0, self.ID:pair_idx}).drop_vars([self.time,self.ID]).rename('xpos0')
-            ypos0 = dset[self.ypos].isel({self.time:0, self.ID:pair_idx}).drop_vars([self.time,self.ID]).rename('ypos0')
-            pID   = dset[self.ID].isel({self.ID:pair_idx}).drop_vars(self.ID).rename('pID')
+            # xpos0 = dset[self.xpos].isel({self.time:0, self.ID:pair_idx}).drop_vars([self.time,self.ID]).rename('xpos0')
+            # ypos0 = dset[self.ypos].isel({self.time:0, self.ID:pair_idx}).drop_vars([self.time,self.ID]).rename('ypos0')
+            # pID   = dset[self.ID].isel({self.ID:pair_idx}).drop_vars(self.ID).rename('pID')
+            # tlen  = (xpos0 - xpos0).isel(particle=0).rename('tlen') + len(dset.time)
+            # stime = (dset.time.isel({self.time:0}, drop=True) + (xpos0 - xpos0).isel({'particle':0})).rename('stime')
+            # r0    = np.hypot(xpos0.isel(particle=0) - xpos0.isel(particle=1),
+            #                  ypos0.isel(particle=0) - ypos0.isel(particle=1)).rename('r0')
+            if self.chunk is None:
+                if ntraj <= 5000:
+                    self.chunk = ntraj * (ntraj - 1) // 2
+                else:
+                    self.chunk = ntraj * 2
+
+            chunk = self.chunk
+            pair_idx = self._get_pair_index(ntraj, chunk)
+            xpos0 = self._select_pair_var(dset[self.xpos], pair_idx).rename('xpos0')
+            ypos0 = self._select_pair_var(dset[self.ypos], pair_idx).rename('ypos0')
+            pID   = self._select_pair_var(dset[self.ID],   pair_idx).rename('pID')
             tlen  = (xpos0 - xpos0).isel(particle=0).rename('tlen') + len(dset.time)
-            stime = (dset.time.isel({self.time:0}, drop=True) + (xpos0 - xpos0).isel({'particle':0})).rename('stime')
+            stime = (dset.time.isel({self.time:0}, drop=True) + 
+                     (xpos0 - xpos0).isel({'particle':0})).rename('stime')
+            r0    = np.hypot(xpos0.isel(particle=0) - xpos0.isel(particle=1),
+                             ypos0.isel(particle=0) - ypos0.isel(particle=1)).rename('r0')
+            
+            tlen  = (xpos0 - xpos0).isel(particle=0).rename('tlen') + len(dset.time)
+            stime = (dset.time.isel({self.time:0}, drop=True) +
+                     (xpos0 - xpos0).isel({'particle':0})).rename('stime')
             r0    = np.hypot(xpos0.isel(particle=0) - xpos0.isel(particle=1),
                              ypos0.isel(particle=0) - ypos0.isel(particle=1)).rename('r0')
             
             return xr.merge([tlen, stime, r0, pID, xpos0, ypos0])
-    
-    def get_pair_index(self,
-        ntraj: int,
-        chunk: int = 1000,
-    ) -> xr.DataArray:
-        """
-        Return a dask-backed xr.DataArray of all unique pairs for `ntraj` items.
-        The returned DataArray has dims ('pair','particle') where 'pair' is chunked.
-    
-        Parameters
-        ----------
-        ntraj : int
-            Number of particles. Number of npair = ntraj*(ntraj-1)//2.
-        chunk : int or None
-            Chunk size for the dask array along the pair dimension. If None, a default
-            is chosen (min(1_000_000, npair) to avoid too-fine chunking).
-        """
-        if ntraj < 2:
-            raise Exception('ntraj should be >= 2')
-
-        if chunk < 1:
-            raise Exception('chunk should be >= 1')
-    
-        npair = ntraj * (ntraj - 1) // 2
-        chunk = min(ntraj, chunk)
-    
-        # k: linear index 0..npair-1 (dask-backed)
-        k = dsa.arange(npair, chunks=chunk, dtype='int64')
-    
-        # use float64 for sqrt to avoid integer overflow & ensure safe sqrt
-        two_n_minus1 = float(2 * ntraj - 1)
-    
-        # i = floor(((2n-1) - sqrt((2n-1)^2 - 8*k)) / 2)
-        # cast k to float64 for sqrt calculation
-        i_float = dsa.floor(((two_n_minus1) - dsa.sqrt(two_n_minus1**2 - 8.0 * k.astype('float64'))) / 2.0)
-        i = i_float.astype('int64')
-    
-        # cumulative count up to row i: cum_i = i*n - (i*(i+1))//2
-        # use integer operations on dask arrays
-        cum_i = i * ntraj - (i * (i + 1) // 2)
-    
-        offset = k - cum_i  # offset within row i
-        j = (i.astype('int64') + 1 + offset).astype('int64')
-    
-        pair_idx = dsa.stack([i, j], axis=1)
-        pair_crd = dsa.arange(npair, chunks=chunk, dtype='int64')
-    
-        return xr.DataArray(pair_idx, name='pID', dims=('pair', 'particle'),
-                            coords={'pair': pair_crd,
-                                    'particle': np.array([0, 1], dtype='int32')})
     
     def get_original_pairs(self,
         pairs: xr.Dataset,
@@ -252,7 +241,7 @@ class RelativeDispersion(object):
             raise Exception(f'unsupported r0 {r0}, should be a list ' +
                             f'of two floats or a single float')
             
-        cond = np.logical_and(pairs.r0>=rmin, pairs.r0<rmax)
+        cond = np.logical_and(pairs.r0>=rmin, pairs.r0<rmax).load()
         
         return pairs.where(cond, drop=True).astype(pairs.dtypes)
     
@@ -382,7 +371,7 @@ class RelativeDispersion(object):
                                 coords={'pair':pairs.pair, 'particle':[0,1],
                                         'rtime':np.arange(maxtlen)*self.dt})
         else:
-            if self.chunk > 0:
+            if pairs.pID.chunks is not None:
                 def load_chunk(pair_slice):
                     return v.sel({self.ID:pairs.pID.isel({'pair':pair_slice})}).data
                 
@@ -403,7 +392,11 @@ class RelativeDispersion(object):
                                             'particle': pairs.particle,
                                             'rtime': np.arange(len(v[self.time]))*self.dt})
             else:
-                return v.sel({self.ID:pairs.pID}).drop_vars(self.ID).rename({self.time:'rtime'})
+                tmp = v.sel({self.ID:pairs.pID}).drop_vars(self.ID).rename({self.time:'rtime'})
+                if self.chunk is not None:
+                    tmp = tmp.chunk({'pair':self.chunk})
+                tmp['rtime'] = np.arange(len(v[self.time])) * self.dt
+                return tmp
     
 
     """"""""""""""""""""""""""""""""""""""""""""""""""""""
@@ -508,18 +501,19 @@ class RelativeDispersion(object):
         vi = vvel.isel(particle=0)
         vj = vvel.isel(particle=1)
         
-        du  = ui - uj
-        dv  = vi - vj
-        vsi = np.hypot(ui, vi)
-        vsj = np.hypot(uj, vj)
-        uv  = ui * uj + vi * vj
-        
-        if self.coord == 'latlon':
+        if self.coord == 'latlon': # need to convert degree to unit of Rearth
             xi = np.deg2rad(xi)
             xj = np.deg2rad(xj)
             yi = np.deg2rad(yi)
             yj = np.deg2rad(yj)
             
+            du  = ui - uj
+            dv  = vi - vj
+            vsi = np.hypot(ui, vi)
+            vsj = np.hypot(uj, vj)
+            uv  = ui * uj + vi * vj
+            
+            # convert radial to meter
             rx = (xi - xj) * np.cos((yi + yj)/2.0) * self.Rearth
             ry = (yi - yj) * self.Rearth
             r  = geodist(xi, xj, yi, yj) * self.Rearth
@@ -527,7 +521,13 @@ class RelativeDispersion(object):
             dul = (rx * du + ry * dv) / r # longitudinal velocity
             dut = (rx * dv - ry * du) / r # transversal  velocity
             
-        else:
+        else: # cartesian coordinate
+            du  = ui - uj
+            dv  = vi - vj
+            vsi = np.hypot(ui, vi)
+            vsj = np.hypot(uj, vj)
+            uv  = ui * uj + vi * vj
+            
             rx = xi - xj
             ry = yi - yj
             r  = np.hypot(rx, ry)
@@ -538,9 +538,10 @@ class RelativeDispersion(object):
         return du, dv, dul, dut, vsi, vsj, uv
 
     
-    def acceleration_measures(self,
+    def acceleration_measures2(self,
         pairs: xr.Dataset
-    ) -> Tuple[xr.DataArray, xr.DataArray, xr.DataArray]:
+    ) -> Tuple[xr.DataArray, xr.DataArray, xr.DataArray, xr.DataArray,
+               xr.DataArray, xr.DataArray, xr.DataArray]:
         """Calculate acceleration measures from a set of pairs
         
         Parameters
@@ -554,52 +555,69 @@ class RelativeDispersion(object):
             delta x-acceleration.
         day: xarray.DataArray
             delta y-acceleration.
-        da: xarray.DataArray
-            delta y-acceleration.
         dal: xarray.DataArray
             longitudinal acceleration.
         dat: xarray.DataArray
             transversal acceleration.
+        ai: xarray.DataArray
+            acceleration magnitude of particle i.
+        aj: xarray.DataArray
+            acceleration magnitude of particle j.
+        axy: xarray.DataArray
+            inner product of two particle's accelerations.
         """
-        xname = self.xpos
-        yname = self.ypos
-        dt    = self.dt
+        dt = self.dt
         
-        xpos = self.load_variable(pairs, xname)
-        ypos = self.load_variable(pairs, yname)
+        xpos = self.load_variable(pairs, self.xpos)
+        ypos = self.load_variable(pairs, self.ypos)
         
         xi = xpos.isel(particle=0)
         xj = xpos.isel(particle=1)
         yi = ypos.isel(particle=0)
         yj = ypos.isel(particle=1)
         
-        if self.coord == 'latlon':
+        if self.coord == 'latlon': # need to convert degree to unit of Rearth
             xi = np.deg2rad(xi)
             xj = np.deg2rad(xj)
             yi = np.deg2rad(yi)
             yj = np.deg2rad(yj)
             
-            axi = xi.pad({xname:1}, mode='edge').diff(xname, label='lower').diff(xname, label='upper') / dt**2.0
-            axj = xj.pad({yname:1}, mode='edge').diff(yname, label='lower').diff(yname, label='upper') / dt**2.0
-            ayi = yi.pad({xname:1}, mode='edge').diff(xname, label='lower').diff(xname, label='upper') / dt**2.0
-            ayj = yj.pad({yname:1}, mode='edge').diff(yname, label='lower').diff(yname, label='upper') / dt**2.0
+            axi = xi.pad({'rtime':1}, mode='edge').diff('rtime', label='lower').diff('rtime', label='upper') / dt**2.0
+            axj = xj.pad({'rtime':1}, mode='edge').diff('rtime', label='lower').diff('rtime', label='upper') / dt**2.0
+            ayi = yi.pad({'rtime':1}, mode='edge').diff('rtime', label='lower').diff('rtime', label='upper') / dt**2.0
+            ayj = yj.pad({'rtime':1}, mode='edge').diff('rtime', label='lower').diff('rtime', label='upper') / dt**2.0
             
-            dax = (axi - axj) * np.cos((yi + yj)/2.0) * self.Rearth
-            day = (ayi - ayj) * self.Rearth
-            da  = np.hypot(dax, day)
-            
-            dul = (rx * dax + ry * day) / r # longitudinal acceleration
-            dut = (rx * day - ry * dax) / r # transversal  acceleration
-            
-        else:
-            axi = xi.pad({xname:1}, mode='edge').diff(xname, label='lower').diff(xname, label='upper') / dt**2.0
-            axj = xj.pad({yname:1}, mode='edge').diff(yname, label='lower').diff(yname, label='upper') / dt**2.0
-            ayi = yi.pad({xname:1}, mode='edge').diff(xname, label='lower').diff(xname, label='upper') / dt**2.0
-            ayj = yj.pad({yname:1}, mode='edge').diff(yname, label='lower').diff(yname, label='upper') / dt**2.0
+            # convert radial to meter
+            axi = axi * np.cos((yi + yj)/2.0) * self.Rearth
+            axj = axj * np.cos((yi + yj)/2.0) * self.Rearth
+            ayi = ayi * self.Rearth
+            ayj = ayj * self.Rearth
             
             dax = axi - axj
             day = ayi - ayj
-            da  = np.hypot(dax, day)
+            ai  = np.hypot(axi, ayi)
+            aj  = np.hypot(axj, ayj)
+            axy = axi * axj + ayi * ayj
+            
+            # convert radial to meter
+            rx = (xi - xj) * np.cos((yi + yj)/2.0) * self.Rearth
+            ry = (yi - yj) * self.Rearth
+            r  = geodist(xi, xj, yi, yj) * self.Rearth
+            
+            dal = (rx * dax + ry * day) / r # longitudinal acceleration
+            dat = (rx * day - ry * dax) / r # transversal  acceleration
+            
+        else: # cartesian coordinate
+            axi = xi.pad({'rtime':1}, mode='edge').diff('rtime', label='lower').diff('rtime', label='upper') / dt**2.0
+            axj = xj.pad({'rtime':1}, mode='edge').diff('rtime', label='lower').diff('rtime', label='upper') / dt**2.0
+            ayi = yi.pad({'rtime':1}, mode='edge').diff('rtime', label='lower').diff('rtime', label='upper') / dt**2.0
+            ayj = yj.pad({'rtime':1}, mode='edge').diff('rtime', label='lower').diff('rtime', label='upper') / dt**2.0
+            
+            dax = axi - axj
+            day = ayi - ayj
+            ai  = np.hypot(axi, ayi)
+            aj  = np.hypot(axj, ayj)
+            axy = axi * axj + ayi * ayj
             
             rx = xi - xj
             ry = yi - yj
@@ -608,10 +626,102 @@ class RelativeDispersion(object):
             dal = (rx * dax + ry * day) / r # longitudinal acceleration
             dat = (rx * day - ry * dax) / r # transversal  acceleration
             
-        return dax, day, da, dal, dat
+        return dax, day, dal, dat, ai, aj, axy
+
+    
+    def acceleration_measures(self,
+        pairs: xr.Dataset
+    ) -> Tuple[xr.DataArray, xr.DataArray, xr.DataArray, xr.DataArray,
+               xr.DataArray, xr.DataArray, xr.DataArray]:
+        """Calculate acceleration measures from a set of pairs
+        
+        Parameters
+        ----------
+        pairs: xarray.Dataset
+            Information of a given pairs.
+    
+        Returns
+        -------
+        dax: xarray.DataArray
+            delta x-acceleration.
+        day: xarray.DataArray
+            delta y-acceleration.
+        dal: xarray.DataArray
+            longitudinal acceleration.
+        dat: xarray.DataArray
+            transversal acceleration.
+        ai: xarray.DataArray
+            acceleration magnitude of particle i.
+        aj: xarray.DataArray
+            acceleration magnitude of particle j.
+        axy: xarray.DataArray
+            inner product of two particle's accelerations.
+        """
+        dt = self.dt
+        
+        xpos = self.load_variable(pairs, self.xpos)
+        ypos = self.load_variable(pairs, self.ypos)
+        uvel = self.load_variable(pairs, self.uvel)
+        vvel = self.load_variable(pairs, self.vvel)
+        
+        xi = xpos.isel(particle=0)
+        xj = xpos.isel(particle=1)
+        yi = ypos.isel(particle=0)
+        yj = ypos.isel(particle=1)
+
+        ui = uvel.isel(particle=0)
+        uj = uvel.isel(particle=1)
+        vi = vvel.isel(particle=0)
+        vj = vvel.isel(particle=1)
+        
+        if self.coord == 'latlon': # need to convert degree to unit of Rearth
+            xi = np.deg2rad(xi)
+            xj = np.deg2rad(xj)
+            yi = np.deg2rad(yi)
+            yj = np.deg2rad(yj)
+            
+            axi = ui.differentiate('rtime')
+            axj = uj.differentiate('rtime')
+            ayi = vi.differentiate('rtime')
+            ayj = vj.differentiate('rtime')
+            
+            dax = axi - axj
+            day = ayi - ayj
+            ai  = np.hypot(axi, ayi)
+            aj  = np.hypot(axj, ayj)
+            axy = axi * axj + ayi * ayj
+            
+            # convert radial to meter
+            rx = (xi - xj) * np.cos((yi + yj)/2.0) * self.Rearth
+            ry = (yi - yj) * self.Rearth
+            r  = geodist(xi, xj, yi, yj) * self.Rearth
+            
+            dal = (rx * dax + ry * day) / r # longitudinal acceleration
+            dat = (rx * day - ry * dax) / r # transversal  acceleration
+            
+        else: # cartesian coordinate
+            axi = ui.differentiate('rtime')
+            axj = uj.differentiate('rtime')
+            ayi = vi.differentiate('rtime')
+            ayj = vj.differentiate('rtime')
+            
+            dax = axi - axj
+            day = ayi - ayj
+            ai  = np.hypot(axi, ayi)
+            aj  = np.hypot(axj, ayj)
+            axy = axi * axj + ayi * ayj
+            
+            rx = xi - xj
+            ry = yi - yj
+            r  = np.hypot(rx, ry)
+
+            dal = (rx * dax + ry * day) / r # longitudinal acceleration
+            dat = (rx * day - ry * dax) / r # transversal  acceleration
+            
+        return dax, day, dal, dat, ai, aj, axy
     
     
-    def r_based_measures(self,
+    def r_based_measures_bak(self,
         pairs: xr.Dataset,
         alpha: float,
         rbins: xr.DataArray,
@@ -622,7 +732,8 @@ class RelativeDispersion(object):
         """Calculate r-based measures using all available pairs
         
         r-based measures includes K2, S2, S2L, S2T, S3, FSLE, FAGR, FAGRp.
-        No bootstrapping is done here, as the samples are quite large.
+        No bootstrapping is done here, as one may use all pairs instead
+        of only original pairs.
         
         Parameters
         ----------
@@ -645,8 +756,10 @@ class RelativeDispersion(object):
             2nd-order transversal velocity structure funciton.
         S3: xarray.DataArray
             3rd-order velocity structure funciton.
-        FSLE: xarray.DataArray
-            Finite-size Lyapunov exponent.
+        FSLEO: xarray.DataArray
+            Finite-size Lyapunov exponent using original time interval.
+        FSLEI: xarray.DataArray
+            Finite-size Lyapunov exponent using interpolated time interval (see interpT).
         FAGR: xarray.DataArray
             Finite-amplitude growth rate.
         FAGRp: xarray.DataArray
@@ -691,8 +804,8 @@ class RelativeDispersion(object):
         nvp =  numP.values[:-1]
         nvf =  numF.values[:-1]
         
-        idxI = pairs.idxI.values
-        idxJ = pairs.idxJ.values
+        idxI = pairs.idxI.values # mmm
+        idxJ = pairs.idxJ.values # mmm
         tlen = pairs.tlen.values
 
         Rearth = self.Rearth
@@ -702,7 +815,7 @@ class RelativeDispersion(object):
         dtype  = self.dtype
         
         for i in tqdm(range(N), ncols=80):
-            size = tlen[i]
+            size = int(tlen[i])
             
             #########   allocate variables   ########
             xx = np.zeros((2, size), dtype=dtype) + np.nan
@@ -710,8 +823,8 @@ class RelativeDispersion(object):
             uu = np.zeros((2, size), dtype=dtype) + np.nan
             vv = np.zeros((2, size), dtype=dtype) + np.nan
             
-            idxIS, idxIE = idxI[i] # the first particle
-            idxJS, idxJE = idxJ[i] # the second particle
+            idxIS, idxIE = idxI[i] # the first particle # mmm
+            idxJS, idxJE = idxJ[i] # the second particle # mmm
             
             #########      fill in data      ########
             xx[0, :] = xpos[idxIS:idxIE]
@@ -722,6 +835,11 @@ class RelativeDispersion(object):
             uu[1, :] = uvel[idxJS:idxJE]
             vv[0, :] = vvel[idxIS:idxIE]
             vv[1, :] = vvel[idxJS:idxJE]
+            
+            # xx[:, :] = xpos.sel({self.ID: pairs.pID[i]}).load()
+            # yy[:, :] = ypos.sel({self.ID: pairs.pID[i]}).load()
+            # uu[:, :] = uvel.sel({self.ID: pairs.pID[i]}).load()
+            # vv[:, :] = vvel.sel({self.ID: pairs.pID[i]}).load()
             
             #########   start calculations   ########
             if self.coord == 'latlon':
@@ -751,7 +869,7 @@ class RelativeDispersion(object):
             r_or = xr.DataArray(r, dims='time',
                                 coords={'time':np.arange(size) * deltaT})
             if interpT > 1:
-                timeInt = np.linspace(0, r_or.time[-1], int((size-1)*interpT+1))
+                timeInt = np.linspace(0, r_or.time.values[-1], int((size-1)*interpT+1))
                 r_da = r_or.interp(time=timeInt)
             else:
                 r_da = r_or
@@ -761,10 +879,12 @@ class RelativeDispersion(object):
             Td = xr.where(rd > rbins, 1, np.nan).idxmax('time')
             fsle = Td.diff('rbin')
             fsleO= (np.log(alpha) / fsle.where(fsle != 0))
+            
             rd = r_da[r_da.argmin().values:]
             Td = xr.where(rd > rbins, 1, np.nan).idxmax('time')
             fsle = Td.diff('rbin')
             fsleI= (np.log(alpha) / fsle.where(fsle != 0))
+            
             fagr = np.log(r_or).differentiate('time').values
             
             #########  accumulated within bins  #########
@@ -805,7 +925,7 @@ class RelativeDispersion(object):
         return K2, S2, S2L, S2T, S3, FSLEO, FSLEI, FAGR, FAGRp, numS, numP, numF
 
     
-    def r_based_measures2(self,
+    def r_based_measures(self,
         pairs: xr.Dataset,
         alpha: float,
         rbins: xr.DataArray,
@@ -816,7 +936,8 @@ class RelativeDispersion(object):
         """Calculate r-based measures using all available pairs
         
         r-based measures includes K2, S2, S2L, S2T, S3, FSLE, FAGR, FAGRp.
-        No bootstrapping is done here, as the samples are quite large.
+        No bootstrapping is done here, as one may use all pairs instead
+        of only original pairs.
         
         Parameters
         ----------
@@ -837,10 +958,16 @@ class RelativeDispersion(object):
             2nd-order longitudinal velocity structure funciton.
         S2T: xarray.DataArray
             2nd-order transversal velocity structure funciton.
+        S2rr: xarray.DataArray
+            rotational component of velocity structure function.
+        S2dd: xarray.DataArray
+            divergent component of velocity structure function.
         S3: xarray.DataArray
             3rd-order velocity structure funciton.
-        FSLE: xarray.DataArray
-            Finite-size Lyapunov exponent.
+        FSLEO: xarray.DataArray
+            Finite-size Lyapunov exponent using original time interval.
+        FSLEI: xarray.DataArray
+            Finite-size Lyapunov exponent using interpolated time interval (see interpT).
         FAGR: xarray.DataArray
             Finite-amplitude growth rate.
         FAGRp: xarray.DataArray
@@ -849,8 +976,10 @@ class RelativeDispersion(object):
             Number of observations for K2, S2, S2L, S2T, S3, FAGR.
         numP: xarray.DataArray
             Number of observations for positive FAGR.
-        numF: xarray.DataArray
-            Number of observations for FSLE.
+        numFO: xarray.DataArray
+            Number of observations for original FSLE.
+        numFI: xarray.DataArray
+            Number of observations for interpolated FSLE (see interpT).
         """
         N = len(pairs['pair'])
         
@@ -858,35 +987,9 @@ class RelativeDispersion(object):
         ypos = self.load_variable(pairs, self.ypos)
         uvel = self.load_variable(pairs, self.uvel)
         vvel = self.load_variable(pairs, self.vvel)
-        
-        K2    = (rbins - rbins).rename('K2')
-        S2    = (rbins - rbins).rename('S2')
-        S2L   = (rbins - rbins).rename('S2L')
-        S2T   = (rbins - rbins).rename('S2T')
-        S3    = (rbins - rbins).rename('S3')
-        FSLEO = (rbins - rbins).rename('FSLEO')
-        FSLEI = (rbins - rbins).rename('FSLEI')
-        FAGR  = (rbins - rbins).rename('FAGR')
-        FAGRp = (rbins - rbins).rename('FAGRp')
-        numS  = (rbins - rbins).rename('num_S2')
-        numP  = (rbins - rbins).rename('num_FAGRp')
-        numF  = (rbins - rbins).rename('num_FSLE')
-        
-        k2  =    K2.values[:-1]
-        s2  =    S2.values[:-1]
-        s2l =   S2L.values[:-1]
-        s2t =   S2T.values[:-1]
-        s3  =    S3.values[:-1]
-        fslo= FSLEO.values[:-1]
-        fsli= FSLEI.values[:-1]
-        fag =  FAGR.values[:-1]
-        fap = FAGRp.values[:-1]
-        nvs =  numS.values[:-1]
-        nvp =  numP.values[:-1]
-        nvf =  numF.values[:-1]
 
         Rearth = self.Rearth
-        _histo = np.histogram
+        _histo = histogram
         rbinv  = rbins.values
         deltaT = self.dt
         dtype  = self.dtype
@@ -936,46 +1039,95 @@ class RelativeDispersion(object):
             r_da = r
         
         #########       for FSLE     #########
-        for p in tqdm(range(N), ncols=80):
-            rtmp = r_da.isel(pair=p)
+        def get_Td(r_single, rbins, rtime):
+            # r_single: shape (rtime,)
+            # rbins: shape (rbin,)
+            # rtime: shape (rtime,)
             
-            rd = rtmp[rtmp.argmin().values:]
-            Td = xr.where(rd > rbins, 1, np.nan).idxmax('rtime')
-            fsleO = Td.diff('rbin')
-            fsleO = (np.log(alpha) / fsleO.where(fsleO != 0))
-            fslo += np.where(np.isnan(fsleO), 0, fsleO)
+            # find indices of minimum separation
+            minidx = np.argmin(r_single)
+            rd = r_single[minidx:]    # starts from minidx
+            rtime_rd = rtime[minidx:] # starts from minidx
             
-            tmp_noF = xr.where(np.isnan(fsleO), 0, 1)
-            nvf += tmp_noF
+            # find the first time indices when separation is larger than rbins
+            Td = np.full_like(rbins, np.nan)
+            for i, rb in enumerate(rbins):
+                mask = rd > rb
+                if np.any(mask):
+                    Td[i] = rtime_rd[np.argmax(mask)]
             
-            rd = rtmp[rtmp.argmin().values:]
-            Td = xr.where(rd > rbins, 1, np.nan).idxmax('rtime')
-            fsleI = Td.diff('rbin')
-            fsleI = (np.log(alpha) / fsleI.where(fsleI != 0))
-            fsli += np.where(np.isnan(fsleI), 0, fsleI)
+            return Td
         
-        fagr = np.log(r).differentiate('rtime').values
+        alpha = rbins.values[-1] / rbins.values[-2] # ratio of neighbouring bins
+
+        ###### original r for FSLEO ######
+        Td = xr.apply_ufunc(
+            get_Td,
+            r.chunk({'rtime':-1}) if r.chunks else r,
+            rbins,
+            r['rtime'],
+            input_core_dims=[['rtime'], ['rbin'], ['rtime']],
+            output_core_dims=[['rbin']],
+            vectorize=True,
+            dask='parallelized' if r.chunks else False,
+            output_dtypes=[r.dtype]
+        )
+
+        Td = Td.assign_coords(pair=r['pair'], rbin=rbins)
+        FSLEO = Td.diff('rbin')
+        numFO = xr.where(np.isnan(FSLEO), 0, 1).sum('pair').load()
+        FSLEO = (np.log(alpha) / FSLEO.where(FSLEO != 0)).mean('pair').load()
+        FSLEO['rbin'] = rbinv[:-1]
+
+        ###### interpolated r for FSLEI ######
+        Td = xr.apply_ufunc(
+            get_Td,
+            r_da.chunk({'rtime':-1}) if r_da.chunks else r_da,
+            rbins,
+            r_da['rtime'],
+            input_core_dims=[['rtime'], ['rbin'], ['rtime']],
+            output_core_dims=[['rbin']],
+            vectorize=True,
+            dask='parallelized' if r.chunks else False,
+            output_dtypes=[r.dtype]
+        )
+        
+        Td = Td.assign_coords(pair=r['pair'], rbin=rbins)
+        FSLEI = Td.diff('rbin')
+        numFI = xr.where(np.isnan(FSLEI), 0, 1).sum('pair').load()
+        FSLEI = (np.log(alpha) / FSLEI.where(FSLEI != 0)).mean('pair').load()
+        FSLEI['rbin'] = rbinv[:-1]
+        
+        fagr = np.log(r).differentiate('rtime')
         
         #########  accumulated within bins  #########
-        tmp_K2 , _ = _histo(r, bins=rbinv, weights=(r**2).differentiate('rtime').values/2)
-        tmp_S2 , _ = _histo(r, bins=rbinv, weights=(du**2+dv**2).values)
-        tmp_S2L, _ = _histo(r, bins=rbinv, weights=(dul**2).values)
-        tmp_S2T, _ = _histo(r, bins=rbinv, weights=(dut**2).values)
-        tmp_S3 , _ = _histo(r, bins=rbinv, weights=(dul*(du**2+dv**2)).values)
+        tmp_K2 , _ = _histo(r, bins=rbinv, weights=(r**2).differentiate('rtime')/2)
+        tmp_S2 , _ = _histo(r, bins=rbinv, weights=(du**2+dv**2))
+        tmp_S2L, _ = _histo(r, bins=rbinv, weights=(dul**2))
+        tmp_S2T, _ = _histo(r, bins=rbinv, weights=(dut**2))
+        tmp_S3 , _ = _histo(r, bins=rbinv, weights=(dul*(du**2+dv**2)))
         tmp_FG , _ = _histo(r, bins=rbinv, weights=fagr)
-        tmp_FGp, _ = _histo(r, bins=rbinv, weights=np.where(fagr>0, fagr, 0))
-        tmp_noS, _ = _histo(r, bins=rbinv, weights=(du-du+1).values)
-        tmp_noP, _ = _histo(r, bins=rbinv, weights=np.where(fagr>0, 1, 0))
+        tmp_FGp, _ = _histo(r, bins=rbinv, weights=xr.where(fagr>0, fagr, 0))
+        tmp_noS, _ = _histo(r, bins=rbinv, weights=(du-du+1))
+        tmp_noP, _ = _histo(r, bins=rbinv, weights=xr.where(fagr>0, 1, 0))
         
-        k2  += np.where(np.isnan(tmp_K2 ), 0, tmp_K2 )
-        s2  += np.where(np.isnan(tmp_S2 ), 0, tmp_S2 )
-        s2l += np.where(np.isnan(tmp_S2L), 0, tmp_S2L)
-        s2t += np.where(np.isnan(tmp_S2T), 0, tmp_S2T)
-        s3  += np.where(np.isnan(tmp_S3 ), 0, tmp_S3 )
-        fag += np.where(np.isnan(tmp_FG ), 0, tmp_FG )
-        fap += np.where(np.isnan(tmp_FGp), 0, tmp_FGp)
-        nvs += tmp_noS
-        nvp += tmp_noP
+        tmp_K2  = xr.where(np.isnan(tmp_K2 ), 0, tmp_K2 )
+        tmp_S2  = xr.where(np.isnan(tmp_S2 ), 0, tmp_S2 )
+        tmp_S2L = xr.where(np.isnan(tmp_S2L), 0, tmp_S2L)
+        tmp_S2T = xr.where(np.isnan(tmp_S2T), 0, tmp_S2T)
+        tmp_S3  = xr.where(np.isnan(tmp_S3 ), 0, tmp_S3 )
+        tmp_FG  = xr.where(np.isnan(tmp_FG ), 0, tmp_FG )
+        tmp_FGp = xr.where(np.isnan(tmp_FGp), 0, tmp_FGp)
+        
+        K2    = xr.DataArray(tmp_K2 , dims='rbin', coords={'rbin':rbins[:-1]}).load()
+        S2    = xr.DataArray(tmp_S2 , dims='rbin', coords={'rbin':rbins[:-1]}).load()
+        S2L   = xr.DataArray(tmp_S2L, dims='rbin', coords={'rbin':rbins[:-1]}).load()
+        S2T   = xr.DataArray(tmp_S2T, dims='rbin', coords={'rbin':rbins[:-1]}).load()
+        S3    = xr.DataArray(tmp_S3 , dims='rbin', coords={'rbin':rbins[:-1]}).load()
+        FAGR  = xr.DataArray(tmp_FG , dims='rbin', coords={'rbin':rbins[:-1]}).load()
+        FAGRp = xr.DataArray(tmp_FGp, dims='rbin', coords={'rbin':rbins[:-1]}).load()
+        numS  = xr.DataArray(tmp_noS, dims='rbin', coords={'rbin':rbins[:-1]}).load()
+        numP  = xr.DataArray(tmp_noP, dims='rbin', coords={'rbin':rbins[:-1]}).load()
         
         K2    /= numS
         S2    /= numS
@@ -984,10 +1136,16 @@ class RelativeDispersion(object):
         S3    /= numS
         FAGR  /= numS
         FAGRp /= numP
-        FSLEO /= numF
-        FSLEI /= numF
+
+        S2rr, S2dd = rotational_divergent_components(S2L, S2T)
         
-        return K2, S2, S2L, S2T, S3, FSLEO, FSLEI, FAGR, FAGRp, numS, numP, numF
+        return xr.merge([K2.rename('K2'), S2.rename('S2'),
+                         S2L.rename('S2L'), S2T.rename('S2T'),
+                         S2rr.rename('S2r'), S2dd.rename('S2d'), S3.rename('S3'),
+                         FSLEO.rename('FSLEO'), FSLEI.rename('FSLEI'),
+                         FAGR.rename('FAGR'), FAGRp.rename('FAGRp'),
+                         numS.rename('num_S2'), numP.rename('num_FAGRp'),
+                         numFO.rename('num_FSLEO'), numFI.rename('num_FSLEI')])
     
     
     def _get_all(self,
@@ -998,18 +1156,41 @@ class RelativeDispersion(object):
         times: np.array
     ) -> Tuple[np.array, np.array, np.array, np.array,
                np.array, np.array, np.array, np.array]:
+        """generate all pair information Dataset
+
+        Parameters
+        ----------
+        ID : np.array
+            Array of particle IDs.
+        rowsize : np.array
+            Array of trajectory lengths.
+        xpos : np.array
+            Array of x-coordinates.
+        ypos : np.array
+            Array of y-coordinates.
+        times : np.array
+            Array of time values.
+
+        Returns
+        -------
+        Tuple[np.array, np.array, np.array, np.array,
+               np.array, np.array, np.array, np.array]
+            A tuple containing arrays of pair information.
+        """
         ntraj = 0
         dtype = xpos.dtype
-    
+        
+        # verify that each trajectory has at least one record 
         for i in range(len(rowsize)):
             if rowsize[i] > 0:
                 ntraj += 1
-    
+
         if ntraj == len(ID):
             npair = ntraj * (ntraj - 1) // 2
         else:
             raise Exception(f'there are {len(ID)-ntraj} empty trajectories')
-        
+
+        # allocate arrays for pair dataset
         r0   = [] # npair * 1, initial separation
         tlen = [] # npair * 1, record length
         stim = [] # npair * 1, initial time (datetime64 format)
@@ -1019,7 +1200,7 @@ class RelativeDispersion(object):
         idx1 = [] # npair * 2, [global_start, global_end]
         idx2 = [] # npair * 2, [global_start, global_end]
         
-        idx = np.roll(rowsize.cumsum(), 1) # start index for each trajectory
+        idx = np.roll(rowsize.cumsum(), 1) # global start index for each trajectory
         idx[0] = 0
         
         for i in range(len(ID)):
@@ -1035,22 +1216,28 @@ class RelativeDispersion(object):
                 i1, i2, j1, j2 = get_overlap_indices(tsI, tsJ)
     
                 if i1 != None:
+                    x1, x2 = xpos[idxI+i1], xpos[idxJ+j1]
+                    y1, y2 = ypos[idxI+i1], ypos[idxJ+j1]
+
                     pID.append([ID[i], ID[j]])
-                    xp.append([xpos[idxI+i1], xpos[idxJ+j1]])
-                    yp.append([ypos[idxI+i1], ypos[idxJ+j1]])
+                    xp.append([x1, x2])
+                    yp.append([y1, y2])
                     stim.append(times[idxI+i1])
                     tlen.append(i2-i1)
 
                     if self.coord == 'latlon':
-                        xpos1, xpos2 = np.deg2rad(xp[-1])
-                        ypos1, ypos2 = np.deg2rad(yp[-1])
+                        xpos1, xpos2 = np.deg2rad([x1, x2])
+                        ypos1, ypos2 = np.deg2rad([y1, y2])
                         
                         r0.append(geodist(xpos1, xpos2, ypos1, ypos2))
                     else:
-                        r0.append(np.hypot(xpos1 - xpos2, ypos1 - ypos2))
+                        r0.append(np.hypot(x1 - x2, y1 - y2))
                     
                     idx1.append([idxI+i1, idxI+i2]) # store global index
                     idx2.append([idxJ+j1, idxJ+j2]) # store global index
+                
+                    # if i == 19 and j == 20:
+                    #     print('ok: ', xp[-1], yp[-1], stim[-1], tlen[-1], r0[-1]*6371.2, idx1[-1], idx2[-1])
 
         if self.coord == 'latlon':
             tmp = self.Rearth
@@ -1062,6 +1249,243 @@ class RelativeDispersion(object):
                np.array(r0  , dtype=dtype) * tmp,\
                np.array(xp  , dtype=dtype)   , np.array(yp  , dtype=dtype   ),\
                np.array(idx1, dtype=np.int32), np.array(idx2, dtype=np.int32)
+
+    def _get_all_chunked(self,
+        ID: np.array,
+        rowsize: np.array,
+        xpos: np.array,
+        ypos: np.array,
+        times: np.array,
+        chunk: int,
+    ) -> Tuple[np.array, np.array, np.array, np.array,
+               np.array, np.array, np.array, np.array]:
+        """Generate all ragged pair information block-by-block.
+
+        Notes
+        -----
+        This method is functionally equivalent to `_get_all`, but it limits
+        intermediate memory by processing only a block of outer trajectory index
+        `i` at a time.
+        """
+        ntraj = 0
+        dtype = xpos.dtype
+
+        # verify that each trajectory has at least one record
+        for i in range(len(rowsize)):
+            if rowsize[i] > 0:
+                ntraj += 1
+
+        if ntraj != len(ID):
+            raise Exception(f'there are {len(ID)-ntraj} empty trajectories')
+
+        if chunk < 1:
+            raise Exception('chunk should be >= 1 for ragged chunked processing')
+
+        # global start index for each trajectory in flattened ragged arrays
+        idx = np.roll(rowsize.cumsum(), 1)
+        idx[0] = 0
+
+        pID_all = []
+        tlen_all = []
+        stim_all = []
+        r0_all = []
+        xp_all = []
+        yp_all = []
+        idx1_all = []
+        idx2_all = []
+
+        for ibeg in range(0, len(ID), chunk):
+            iend = min(ibeg + chunk, len(ID))
+
+            # Chunk-local lists are quickly converted to numpy then appended.
+            pID = []
+            tlen = []
+            stim = []
+            r0 = []
+            xp = []
+            yp = []
+            idx1 = []
+            idx2 = []
+
+            for i in range(ibeg, iend):
+                for j in range(i+1, len(ID)):
+                    idxI, idxJ = idx[i], idx[j]
+
+                    tsI = times[idxI:idxI+rowsize[i]]
+                    tsJ = times[idxJ:idxJ+rowsize[j]]
+
+                    # End indices i2, j2 are exclusive for [i1:i2] slicing.
+                    i1, i2, j1, j2 = get_overlap_indices(tsI, tsJ)
+
+                    if i1 is None:
+                        continue
+
+                    x1, x2 = xpos[idxI+i1], xpos[idxJ+j1]
+                    y1, y2 = ypos[idxI+i1], ypos[idxJ+j1]
+
+                    pID.append([ID[i], ID[j]])
+                    xp.append([x1, x2])
+                    yp.append([y1, y2])
+                    stim.append(times[idxI+i1])
+                    tlen.append(i2 - i1)
+
+                    if self.coord == 'latlon':
+                        xpos1, xpos2 = np.deg2rad([x1, x2])
+                        ypos1, ypos2 = np.deg2rad([y1, y2])
+                        r0.append(geodist(xpos1, xpos2, ypos1, ypos2))
+                    else:
+                        r0.append(np.hypot(x1 - x2, y1 - y2))
+
+                    idx1.append([idxI+i1, idxI+i2])
+                    idx2.append([idxJ+j1, idxJ+j2])
+
+            # Skip empty blocks (e.g., no temporal overlap in this i-range).
+            if len(pID) == 0:
+                continue
+
+            pID_all.append(np.array(pID, dtype=np.int32))
+            tlen_all.append(np.array(tlen, dtype=np.int32))
+            stim_all.append(np.array(stim, dtype=times.dtype))
+            r0_all.append(np.array(r0, dtype=dtype))
+            xp_all.append(np.array(xp, dtype=dtype))
+            yp_all.append(np.array(yp, dtype=dtype))
+            idx1_all.append(np.array(idx1, dtype=np.int32))
+            idx2_all.append(np.array(idx2, dtype=np.int32))
+
+        # Build empty arrays with correct shape/dtype if no valid pairs exist.
+        if len(pID_all) == 0:
+            pID = np.empty((0, 2), dtype=np.int32)
+            tlen = np.empty((0,), dtype=np.int32)
+            stim = np.empty((0,), dtype=times.dtype)
+            r0 = np.empty((0,), dtype=dtype)
+            xp = np.empty((0, 2), dtype=dtype)
+            yp = np.empty((0, 2), dtype=dtype)
+            idx1 = np.empty((0, 2), dtype=np.int32)
+            idx2 = np.empty((0, 2), dtype=np.int32)
+        else:
+            pID = np.concatenate(pID_all, axis=0)
+            tlen = np.concatenate(tlen_all, axis=0)
+            stim = np.concatenate(stim_all, axis=0)
+            r0 = np.concatenate(r0_all, axis=0)
+            xp = np.concatenate(xp_all, axis=0)
+            yp = np.concatenate(yp_all, axis=0)
+            idx1 = np.concatenate(idx1_all, axis=0)
+            idx2 = np.concatenate(idx2_all, axis=0)
+
+        if self.coord == 'latlon':
+            tmp = self.Rearth
+        else:
+            tmp = 1
+
+        return pID, tlen, stim, r0 * tmp, xp, yp, idx1, idx2
+    
+    def _select_pair_var(self,
+        var: xr.DataArray,
+        pair_idx: xr.DataArray
+    ) -> xr.DataArray:
+        """replace isel as isel cannot handle dask array
+
+        Select values from `var` for index pairs in `pair_idx` (dask-backed).
+        Returns xr.DataArray with dims ('pair','particle').
+        Works for var that has a particle index dimension named self.ID (and possibly time).
+    
+        Parameters
+        ----------
+        var : xr.DataArray
+            Input data array to select pairs from.
+        pair_idx : xr.DataArray
+            Data array containing the pair indices.  Should have dims ('pair','particle')
+        """
+        # select time=0 if var has time dimension
+        if self.time in var.dims:
+            v0 = var.isel({self.time: 0})
+        else:
+            v0 = var
+
+        # underlying data as dask array
+        data = v0.data
+        if not isinstance(data, dsa.core.Array):
+            # wrap numpy into dask to ensure consistent behavior
+            chunks = (self.chunk if self.chunk > 0 else min(1_000_000, v0.shape[0]))
+            data = dsa.from_array(data, chunks=chunks)
+
+        # axis along which to take indices (should correspond to self.ID)
+        try:
+            id_axis = v0.get_axis_num(self.ID)
+        except Exception:
+            id_axis = 0
+
+        # pair_idx.data is a dask array shape (npair,2)
+        idx0 = pair_idx.data[:, 0]
+        idx1 = pair_idx.data[:, 1]
+
+        # use dask.take to gather values; result shape (npair,)
+        val0 = dsa.take(data, idx0, axis=id_axis)
+        val1 = dsa.take(data, idx1, axis=id_axis)
+
+        # stack into (npair, 2)
+        stacked = dsa.stack([val0, val1], axis=1)
+
+        # pair length (integer)
+        npair = int(pair_idx.sizes['pair'])
+
+        pair_coord = np.arange(npair, dtype='int64')
+        particle_coord = np.array([0, 1], dtype='int32')
+
+        return xr.DataArray(stacked, dims=('pair', 'particle'),
+                            coords={'pair': pair_coord, 'particle': particle_coord},
+                            name=var.name)  
+
+    def _get_pair_index(self,
+        ntraj: int,
+        chunk: int = 1000,
+    ) -> xr.DataArray:
+        """
+        Return a dask-backed xr.DataArray of all unique pairs for `ntraj` items.
+        The returned DataArray has dims ('pair','particle') where 'pair' is chunked.
+    
+        Parameters
+        ----------
+        ntraj : int
+            Number of particles. Number of npair = ntraj*(ntraj-1)//2.
+        chunk : int or None
+            Chunk size for the dask array along the pair dimension. If None, a default
+            is chosen (min(1_000_000, npair) to avoid too-fine chunking).
+        """
+        if ntraj < 2:
+            raise Exception('ntraj should be >= 2')
+
+        if chunk < 1:
+            raise Exception('chunk should be >= 1')
+    
+        npair = ntraj * (ntraj - 1) // 2
+        chunk = min(npair, chunk)
+    
+        # k: linear index 0..npair-1 (dask-backed)
+        k = dsa.arange(npair, chunks=chunk, dtype='int64')
+    
+        # use float64 for sqrt to avoid integer overflow & ensure safe sqrt
+        two_n_minus1 = float(2 * ntraj - 1)
+    
+        # i = floor(((2n-1) - sqrt((2n-1)^2 - 8*k)) / 2)
+        # cast k to float64 for sqrt calculation
+        i_float = dsa.floor((two_n_minus1 -
+                             dsa.sqrt(two_n_minus1**2 - 8.0 * k.astype('float64'))) / 2.0)
+        i = i_float.astype('int64')
+    
+        # cumulative count up to row i: cum_i = i*n - (i*(i+1))//2
+        # use integer operations on dask arrays
+        cum_i = i * ntraj - (i * (i + 1) // 2)
+    
+        offset = k - cum_i  # offset within row i
+        j = (i.astype('int64') + 1 + offset).astype('int64')
+    
+        pair_idx = dsa.stack([i, j], axis=1)
+        pair_crd = dsa.arange(npair, chunks=chunk, dtype='int64')
+    
+        return xr.DataArray(pair_idx, name='pID', dims=('pair', 'particle'),
+                            coords={'pair': pair_crd,
+                                    'particle': np.array([0, 1], dtype='int32')})
     
     
     def __repr__(self) -> str:

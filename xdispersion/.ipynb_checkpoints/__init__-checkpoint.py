@@ -14,6 +14,6 @@ from .measures import rel_disp, vel_struct_func, rel_diff,\
 from .fpe import integrate, CFLcondition
 from .plot import panel
 from .template import cal_all_measures
-from .utils import geodist, gen_rbins
+from .utils import geodist, gen_rbins, sum_at_rbin, mean_at_rbin
 
 __version__ = "0.0.1"

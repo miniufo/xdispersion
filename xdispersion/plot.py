@@ -13,18 +13,6 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 """
 Some plot functions are defined below
 """
-
-_labels = ['$10^{-12}$', '$10^{-11}$', '$10^{-10}$', '$10^{-9}$', '$10^{-8}$',
-           '$10^{-7}$' , '$10^{-6}$' , '$10^{-5}$' , '$10^{-4}$', '$10^{-3}$',
-           '$10^{-2}$' , '$10^{-1}$' , '$10^{0}$'  , '$10^{1}$' , '$10^{2}$' ,
-           '$10^{3}$'  , '$10^{4}$'  , '$10^{5}$'  , '$10^{6}$' , '$10^{7}$' ,
-           '$10^{8}$'  , '$10^{9}$'  , '$10^{10}$' , '$10^{11}$', '$10^{12}$']
-
-_ticks  = [1e-12, 1e-11, 1e-10, 1e-9, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3 ,
-           1e-2 , 1e-1 , 1e0  , 1e1 , 1e2 , 1e3 , 1e4 , 1e5 , 1e6 , 1e7  ,
-           1e8  , 1e9  , 1e10 , 1e11, 1e12]
-
-
 def panel(ax, vs, avs, title, yscale, xscale, ylim, xlim, ylabel, xlabel=None, loc='ll',
           fontsize=12, timebased=True, ncols=2, thre=None, size=1.6, rebins=None):
     """Plot a panel of measures, with analytic predictions
@@ -117,7 +105,7 @@ def _panel_vars(ax, vs, avs, timebased=True, rebins=None):
     
     for v in vs:
         v      = v.copy()
-        r      = v.pop('r') if not timebased else None
+        r      = v.pop('r', None)
         var    = v.pop('var')
         label  = v.pop('label')
         method = v.pop('method')
@@ -191,7 +179,7 @@ def _panel_vars(ax, vs, avs, timebased=True, rebins=None):
     
     for v in avs:
         v      = v.copy()
-        r      = v.pop('r') if not timebased else None
+        r      = v.pop('r', None)
         var    = v.pop('var')
         label  = v.pop('label')
         method = v.pop('method')
@@ -273,15 +261,15 @@ def _add_axes(ax, lgd, title, yscale, xscale, ylim, xlim, ylabel, xlabel=None, l
     
     if xscale == 'log':
         ax.set_xscale('log')
-        ax.set_xticks(_ticks)
-        ax.set_xticklabels(_labels, fontsize=fontsize-1)
+        # ax.set_xticks(_ticks)
+        # ax.set_xticklabels(_labels, fontsize=fontsize-1)
         ax.set_xlim(xlim)
         #ax.tick_params(axis='x', labelsize=fontsize-1)
 
         if yscale == 'log':
             ax.set_yscale('log')
-            ax.set_yticks(_ticks)
-            ax.set_yticklabels(_labels, fontsize=fontsize-1)
+            # ax.set_yticks(_ticks)
+            # ax.set_yticklabels(_labels, fontsize=fontsize-1)
             ax.set_ylim(ylim)
             ax.set_ylabel(ylabel, fontsize=fontsize-1)
         elif yscale == 'linear':
@@ -299,8 +287,8 @@ def _add_axes(ax, lgd, title, yscale, xscale, ylim, xlim, ylabel, xlabel=None, l
 
         if yscale == 'log':
             ax.set_yscale('log')
-            ax.set_yticks(_ticks)
-            ax.set_yticklabels(_labels, fontsize=fontsize-1)
+            # ax.set_yticks(_ticks)
+            # ax.set_yticklabels(_labels, fontsize=fontsize-1)
             ax.set_ylim(ylim)
             ax.set_ylabel(ylabel, fontsize=fontsize-1)
         elif yscale == 'linear':
@@ -315,8 +303,8 @@ def _add_axes(ax, lgd, title, yscale, xscale, ylim, xlim, ylabel, xlabel=None, l
             thre = (xlim[1] - xlim[0]) / 4.0
         
         ax.set_xscale('log')
-        ax.set_xticks(_ticks)
-        ax.set_xticklabels(_labels, fontsize=fontsize-1)
+        # ax.set_xticks(_ticks)
+        # ax.set_xticklabels(_labels, fontsize=fontsize-1)
         ax.set_xlim((xlim[0], thre))
         ax.spines['right'].set_visible(False)
         ax.set_xlabel(xlabel, fontsize=fontsize-1)
@@ -324,8 +312,8 @@ def _add_axes(ax, lgd, title, yscale, xscale, ylim, xlim, ylabel, xlabel=None, l
         
         if yscale == 'log':
             ax.set_yscale('log')
-            ax.set_yticks(_ticks)
-            ax.set_yticklabels(_labels, fontsize=fontsize-1)
+            # ax.set_yticks(_ticks)
+            # ax.set_yticklabels(_labels, fontsize=fontsize-1)
             ax.set_ylabel(ylabel, fontsize=fontsize-1)
             ax.set_ylim(ylim)
         elif yscale =='linear':

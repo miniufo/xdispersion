@@ -7,6 +7,7 @@ Copyright 2018. All rights reserved. Use is subject to license terms.
 """
 import numpy as np
 import xarray as xr
+import pytest
 from xdispersion.utils import get_overlap_indices
 
 def test_get_overlap_indices():

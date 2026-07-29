@@ -7,10 +7,11 @@ Copyright 2018. All rights reserved. Use is subject to license terms.
 """
 import numpy as np
 import xarray as xr
+import pytest
 from xdispersion.utils import get_overlap_indices
 
 def test_get_overlap_indices():
-    dset = xr.open_dataset('./data/glad64.nc')
+    dset = xr.open_dataset('./data/glad32.nc')
     
     cases = [[slice(10, 20), slice( 5, 10)],
              [slice(10, 20), slice(20, 25)],

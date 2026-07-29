@@ -172,26 +172,68 @@ def gen_rbins(
         num = np.log(r_upper/r_lower) / np.log(alpha)
         n   = np.arange(1, np.floor(num)+1)
         rbins = r_lower * alpha**n
-        rbins = np.insert(rbins, 0, r_lower)
+        rbins = np.insert(rbins, 0, r_lower).astype('float32')
         rbins = xr.DataArray(rbins, dims='rbin', coords={'rbin':rbins})
 
-        assert (rbins[1:].values / rbins[:-1].values != alpha).any()
+        assert np.allclose(rbins[1:].values / rbins[:-1].values, alpha)
         
     else:
         num = np.log(thre/r_lower) / np.log(alpha)
         n   = np.arange(1, np.floor(num)+1)
         rbins = r_lower * alpha**n
-        rbins = np.hstack([np.insert(rbins, 0, r_lower), np.linspace(thre, r_upper, int((r_upper-thre)/incre))])
+        rbins = np.hstack([np.insert(rbins, 0, r_lower),
+                           np.linspace(thre, r_upper, int((r_upper-thre)/incre))
+                          ]).astype('float32')
         rbins = xr.DataArray(rbins, dims='rbin', coords={'rbin':rbins})
     
     return rbins.rename('rbins')
 
 
+def loglog_fit(
+    t: np.array,
+    y: np.array
+) -> Tuple[float, float]:
+    """log-log fit of a timeseries as log(y) = f(log(t))
+    
+    Parameters
+    ----------
+    t: numpy.ndarray
+        Relative time axis.
+    y: numpy.ndarray
+        Values at each time.
+    
+    Returns
+    -------
+    slope: numpy.ndarray
+        Slope of the log-log fit.
+    inter: numpy.ndarray
+        Intersection of the fit.
+    """
+    idx = ~np.isnan(y)
+
+    # select non-nan points to fit
+    yy = y[idx]
+    tt = t[idx].copy()
+    
+    if len(yy) > 1:
+        try:
+            if tt[0] == 0:
+                tt[0] = 1e-30
+            slope, inter = np.polyfit(np.log(tt), np.log(yy), 1)
+        except Exception:
+            print('polyfit error')
+            return np.nan, np.nan
+        
+        return slope, inter
+    else:
+        return np.nan, np.nan
+
+
 def semilog_fit(
     t: np.array,
     y: np.array
-) -> Tuple[float, float, float]:
-    """semi-log fit of a timeseries y=f(t)
+) -> Tuple[float, float]:
+    """semi-log fit of a timeseries as y = f(log(t))
     
     Parameters
     ----------
@@ -206,29 +248,25 @@ def semilog_fit(
         Slope of the semi-log fit.
     inter: numpy.ndarray
         Intersection of the fit.
-    rmse: numpy.ndarray
-        Root mean squared error of the fit.
     """
     idx = ~np.isnan(y)
 
     # select non-nan points to fit
     yy = y[idx]
-    tt = t[idx]
+    tt = t[idx].copy()
     
     if len(yy) > 1:
         try:
             if tt[0] == 0:
-                tt[0] = 1e-20
+                tt[0] = 1e-30
             slope, inter = np.polyfit(np.log(tt), yy, 1)
-        except:
+        except Exception:
             print('polyfit error')
-            return np.nan, np.nan, np.nan
-        fitted = slope * tt + inter;
-        rmse = np.sqrt(np.sum((fitted - yy) ** 2.0) / len(tt));
+            return np.nan, np.nan
         
-        return slope, inter, rmse
+        return slope, inter
     else:
-        return np.nan, np.nan, np.nan
+        return np.nan, np.nan
 
 
 def mean_at_rbin(
@@ -250,17 +288,18 @@ def mean_at_rbin(
     cond: xr.DataArray
         An extra condition for selecting samples
     """
-    ones = var - var + 1
-    
-    if cond is None:
-        wei = ones
-    else:
-        wei = xr.where(cond, 1, 0)
-
     rbv = rbins.values if type(rbins) is xr.DataArray else rbins
-    
-    mean = histogram(r.rename('rtmp'), bins=rbv, weights=(var *wei).rename('vtmp'), block_size=1) \
-         / histogram(r.rename('rtmp'), bins=rbv, weights=(ones*wei).rename('otmp'), block_size=1)
+
+    valid = np.isfinite(var) & np.isfinite(r)
+    if cond is not None:
+        valid = valid & cond.fillna(False)
+
+    w_sum = xr.where(valid, var, 0).rename('vtmp')
+    w_cnt = xr.where(valid, 1, 0).rename('otmp')
+
+    num = histogram(r.rename('rtmp'), bins=rbv, weights=w_sum, block_size=1)
+    den = histogram(r.rename('rtmp'), bins=rbv, weights=w_cnt, block_size=1)
+    mean = xr.where(den > 0, num / den, np.nan)
     
     mean['rtmp_bin'] = rbv[:-1]
     
@@ -286,16 +325,15 @@ def sum_at_rbin(
     cond: xr.DataArray
         An extra condition for selecting samples
     """
-    ones = var - var + 1
-    
-    if cond is None:
-        wei = ones
-    else:
-        wei = xr.where(cond, 1, 0)
-
     rbv = rbins.values if type(rbins) is xr.DataArray else rbins
-    
-    total = histogram(r.rename('rtmp'), bins=rbv, weights=(var *wei).rename('vtmp'), block_size=1)
+
+    valid = np.isfinite(var) & np.isfinite(r)
+    if cond is not None:
+        valid = valid & cond.fillna(False)
+
+    w_sum = xr.where(valid, var, 0).rename('vtmp')
+
+    total = histogram(r.rename('rtmp'), bins=rbv, weights=w_sum, block_size=1)
     
     total['rtmp_bin'] = rbv[:-1]
     
@@ -340,7 +378,7 @@ def get_overlap_indices(
     
     strIdx = np.where(lts == sts[ 0])[0]
     endIdx = np.where(lts == sts[-1])[0]
-
+    
     hasStr = False
     hasEnd = False
 
@@ -383,7 +421,7 @@ def get_overlap_indices(
             i1, i2, j1, j2 = strIdx, len(lts), 0, endIdx+1
             _check_indices(i1, i2, j1, j2)
             return i1, i2, j1, j2
-
+    
     raise Exception(f'should not reach here: {hasStr}, {hasEnd}, {switch}')
 
 

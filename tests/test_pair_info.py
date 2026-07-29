@@ -30,26 +30,26 @@ def test_pair_info():
         
         return drifters, ids, dset
     
-    drifters, ids, dset = load_GLAD_drifters(xr.open_dataset('./data/glad64.nc'))
+    drifters, ids, dset = load_GLAD_drifters(xr.open_dataset('./data/glad32.nc'))
 
-    rd = RelativeDispersion(xpos='longitude', uvel='ve', time='time', Rearth=6371.2,
-                            ypos='latitude' , vvel='vn', coord='latlon')
+    rd = RelativeDispersion(dset, xpos='longitude', ypos='latitude',
+                            uvel='ve', vvel='vn', maxtlen=4*24*30,
+                            time='time', Rearth=6371.2, ID='traj', coord='latlon', ragged=True)
     
     # first way of getting information
-    p_all  = rd.get_all_pairs_information(dset)
+    p_all  = rd.get_all_pairs()
     cond   = np.logical_and(p_all.r0>0.08, p_all.r0<0.18)
     p_ori1 = p_all.where(cond).dropna('pair', how='all')
-    
+    print(p_ori1)
     # second way of getting information
-    pairs  = rd.group_pairs(drifters)
-    origin = rd.find_pairs(pairs, [0.08,  0.18], chancePair=False)
-    p_ori2 = rd.get_pairs_information(origin)
+    p_ori2 = rd.get_original_pairs(p_all, r0=[0.08, 0.18])
+    print(p_ori2)
     
     assert len(p_all['pair']) == 43518
     assert len(p_ori1['pair']) == len(p_ori2['pair'])
-    assert (p_ori1.tlen == p_ori2.tlen).all()
-    assert (p_ori1.r0   == p_ori2.r0  ).all()
-    assert (p_ori1.lon0 == p_ori2.lon0).all()
-    assert (p_ori1.lat0 == p_ori2.lat0).all()
+    assert (p_ori1.tlen  == p_ori2.tlen).all()
+    assert (p_ori1.r0    == p_ori2.r0  ).all()
+    assert (p_ori1.xpos0 == p_ori2.xpos0).all()
+    assert (p_ori1.ypos0 == p_ori2.ypos0).all()
 
 

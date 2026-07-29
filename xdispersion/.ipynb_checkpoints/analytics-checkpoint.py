@@ -91,6 +91,39 @@ def ana_r2(
         newF = np.frompyfunc(func, 2, 1)
         r2   = newF(tmp, coeff).astype(ts.dtype)
         
+    elif regime.lower() in ['generalized']:
+        def func(a, b, z): # expression
+            return  mpm.hyp1f1(a, b, z)
+        
+        slp = params['slope']
+        k2  = params['k2']
+        b = (np.abs(slp) + 1.0) / 2.0
+        
+        if b < 1 or b > 2:
+            raise Exception(f'invalid slope: {slp}, should be within (-3, -1)')
+            
+        if k2 <= 0:
+            raise ValueError(f'k2 {k2} should be a positive number')
+        
+        # tmp parameters
+        delta = 2 - b  # 2-a
+        exp1 = 2 / delta  # 2/(2-a)
+        exp2 = 4 / delta  # 4/(2-a)
+        
+        # constants
+        gamma_term = gamma(exp2) / gamma(exp1)
+        power_term = (delta ** exp2) * (k2 ** exp1)
+        
+        # parameter z for hyp1f1
+        z = r0 ** delta / ((delta ** 2) * k2 * t)
+        
+        # M(-exp1; exp1; -z)）
+        newF = np.frompyfunc(func, 3, 1)
+        hyp_term = newF(-exp1, exp1, -z.values).astype(ts.dtype)
+
+        # relative dispersion
+        r2 = power_term * (ts ** exp1) * gamma_term * hyp_term
+        
     elif regime.lower() in ['richardson-a', 'local-a', '-5/3-a']:
         r2 = 5.2675 * (params['beta'] * ts) **3.0
         
@@ -153,10 +186,10 @@ def ana_Ku(
         lmbd = params['lambda']
         tmp  = (4.0 * r0**(1.0/2.0)) / (lmbd * ts)
         newF = np.frompyfunc(func, 1, 1)
-        Ku   = newF(tmp).astype(r.dtype)
+        Ku   = newF(tmp).astype(ts.dtype)
         
     elif regime.lower() in ['-2-a']:
-        Ku = ts - ts + 9.4286
+        Ku = ts - ts + 9.428571
 
     elif regime.lower() in ['richardson', 'local', '-5/3']:
         def func(tmp): # expression, use mpm instead of scipy to avoid overflow
@@ -167,7 +200,59 @@ def ana_Ku(
         beta = params['beta']
         tmp  = (9.0 * r0**(2.0/3.0)) / (4.0 * beta * ts)
         newF = np.frompyfunc(func, 1, 1)
-        Ku   = newF(tmp).astype(r.dtype)
+        Ku   = newF(tmp).astype(ts.dtype)
+
+    elif regime.lower() in ['generalized']:
+        def func(a, b, z): # expression
+            return  mpm.hyp1f1(a, b, z)
+        
+        r0  = params['r0']
+        slp = params['slope']
+        k2  = params['k2']
+        b   = (np.abs(slp) + 1.0) / 2.0 # diffusivity scaling K(r) = k2 r^b
+        
+        if b < 1 or b > 2:
+            raise Exception(f'invalid slope: {slp}, should be within (-3, -1)')
+            
+        if k2 <= 0:
+            raise ValueError(f'k2 {k2} should be a positive number')
+        
+        # tmp parameters
+        delta = 2 - b  # 2-b
+        tmp = 2 / delta  # 2/(2-b)
+        z = (r0 ** delta) / ((delta ** 2) * k2 * ts)  # nondimensional z
+        
+        # M(-γ, γ, -z) 、M(-2γ, γ, -z)
+        newF = np.frompyfunc(func, 3, 1)
+        hyp1 = newF(  -tmp, tmp, -z.values).astype(ts.dtype)
+        hyp2 = newF(-2*tmp, tmp, -z.values).astype(ts.dtype)
+        
+        # gamma_terms：Γ(3γ)Γ(γ)/[Γ(2γ)]^2
+        gamma_term = (gamma(3 * tmp) * gamma(tmp)) / (gamma(2 * tmp) ** 2)
+        
+        # kurtosis
+        Ku = ts - ts + gamma_term * (hyp2 / (hyp1 ** 2))
+
+    elif regime.lower() in ['generalized-a']:
+        r0  = params['r0']
+        slp = params['slope']
+        k2  = params['k2']
+        b   = (np.abs(slp) + 1.0) / 2.0 # diffusivity scaling K(r) = k2 r^b
+        
+        if b < 1 or b > 2:
+            raise Exception(f'invalid slope: {slp}, should be within (-3, -1)')
+            
+        if k2 <= 0:
+            raise ValueError(f'k2 {k2} should be a positive number')
+        
+        # tmp parameters
+        tmp = 2 / (2 - b)  # 2/(2-b)
+        
+        # gamma_terms：Γ(3γ)Γ(γ)/[Γ(2γ)]^2
+        gamma_term = (gamma(3 * tmp) * gamma(tmp)) / (gamma(2 * tmp) ** 2)
+        
+        # kurtosis
+        Ku = ts - ts + gamma_term
         
     elif regime.lower() in ['richardson-a', 'local-a', '-5/3-a']:
         Ku = ts - ts + 5.6

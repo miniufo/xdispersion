@@ -21,7 +21,7 @@ default_rbins = gen_rbins(0.01, 1000, alpha=1.2)
 "   Suffix '_t' means averaged at constant time, and   "
 "   suffix '_r' means averaged at constant rbin.       "
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""
-def rel_disp(
+def relative_dispersion(
     r: xr.DataArray,
     order: Optional[int] = 2,
     rbins: Optional[xr.DataArray] = default_rbins,
@@ -63,9 +63,9 @@ def rel_disp(
     # define how to take average
     def how_to_mean(v, r):
         if mean_at == 'const-t':
-            return v.mean('pair')
+            return v.mean('pair').astype(r.dtype)
         elif mean_at == 'const-r':
-            return mean_at_rbin(v, r, rbins)
+            return mean_at_rbin(v, r, rbins).astype(r.dtype)
         else:
             raise Exception(f'unsupported mean_at string {mean_at}, '+
                             f'should be one of [const-t, const-r]')
@@ -81,7 +81,7 @@ def rel_disp(
                ub.rename(f'UBr{order}_{mean_at[-1]}')
 
 
-def vel_struct_func(
+def velocity_structure_function(
     du: xr.DataArray,
     r: xr.DataArray,
     order: Optional[int] = 2,
@@ -133,9 +133,9 @@ def vel_struct_func(
     # define how to take average
     def how_to_mean(v, r):
         if mean_at == 'const-t':
-            return v.mean('pair')
+            return v.mean('pair').astype(r.dtype)
         elif mean_at == 'const-r':
-            return mean_at_rbin(v, r, rbins)
+            return mean_at_rbin(v, r, rbins).astype(r.dtype)
         else:
             raise Exception(f'unsupported mean_at string {mean_at}, '+
                             f'should be one of [const-t, const-r]')
@@ -151,10 +151,10 @@ def vel_struct_func(
                ub.rename(f'UBS{order}_{mean_at[-1]}')
 
 
-def rel_diff(
+def relative_diffusivity(
     r: xr.DataArray,
     rbins: Optional[xr.DataArray] = default_rbins,
-    samples: Literal['all', 'positive', 'negative'] = 'all',
+    samples: Literal['all', 'positive', 'negative', 'abs'] = 'all',
     mean_at: Literal['const-t', 'const-r'] = 'const-t',
     ensemble: Optional[int] = 0,
     CI: Optional[float] = 0.95,
@@ -170,7 +170,7 @@ def rel_diff(
     rbins: xr.DataArray
         A given set of separation bins used to average.
     samples: str
-        Samples over which the average is taken.
+        Samples over which the average is taken ['all', 'positive', 'negative', 'abs'].
     mean_at: str
         Condition of average. Should be one of ['const-t', 'const-r'],
         indicating average at constant time or separation.
@@ -190,30 +190,41 @@ def rel_diff(
     """
     # ffill() to ensure nans will not propagate to
     # contaminate the results via finite differencing
-    K2 = (r**2.0).ffill('rtime').differentiate('rtime') / 2.0
+    # This may also cause memory problem if rtime is chunked
+    # Make sure that rtime is not chunked or chunk({'rtime':-1})
+    if r.chunksizes is not None and 'rtime' in r.chunksizes and len(r.chunksizes['rtime']) > 1:
+        # for synthetic drifters that rtime is chunked for long-term tracking
+        K2 = (r**2.0).differentiate('rtime') / 2.0
+    else:
+        # for real drifters that t-lengths are not equal
+        K2 = (r**2.0).ffill('rtime').differentiate('rtime') / 2.0
     
     # define how to take average
     def how_to_mean(v, r):
         if mean_at == 'const-t':
             if samples == 'all':
-                return v.mean('pair')
+                return v.mean('pair').astype(r.dtype)
             elif samples == 'positive':
-                return v.where(v>0).mean('pair')
+                return v.where(v>0).mean('pair').astype(r.dtype)
             elif samples == 'negative':
-                return v.where(v<0).mean('pair')
+                return v.where(v<0).mean('pair').astype(r.dtype)
+            elif samples == 'abs':
+                return np.abs(v).mean('pair').astype(r.dtype)
             else:
                 raise Exception(f'unsupported samples {samples}, '+
-                                f'should be one of [all, positive, negative]')
+                                f'should be one of [all, positive, negative, abs]')
         elif mean_at == 'const-r':
             if samples == 'all':
-                return mean_at_rbin(v, r, rbins)
+                return mean_at_rbin(v, r, rbins).astype(r.dtype)
             elif samples == 'positive':
-                return mean_at_rbin(v, r, rbins, cond=v>0)
+                return mean_at_rbin(v, r, rbins, cond=v>0).astype(r.dtype)
             elif samples == 'negative':
-                return mean_at_rbin(v, r, rbins, cond=v<0)
+                return mean_at_rbin(v, r, rbins, cond=v<0).astype(r.dtype)
+            elif samples == 'abs':
+                return mean_at_rbin(np.abs(v), r, rbins).astype(r.dtype)
             else:
                 raise Exception(f'unsupported samples {samples}, '+
-                                f'should be one of [all, positive, negative]')
+                                f'should be one of [all, positive, negative, abs]')
         else:
             raise Exception(f'unsupported mean_at string {mean_at}, '+
                             f'should be one of [const-t, const-r]')
@@ -229,10 +240,10 @@ def rel_diff(
                ub.rename(f'UBK2_{mean_at[-1]}')
 
 
-def famp_growth_rate(
+def finite_amplitude_growth_rate(
     r: xr.DataArray,
     rbins: Optional[xr.DataArray] = default_rbins,
-    samples: Literal['all', 'positive', 'negative'] = 'all',
+    samples: Literal['all', 'positive', 'negative'] = 'positive',
     mean_at: Literal['const-t', 'const-r'] = 'const-r',
     ensemble: Optional[int] = 0,
     CI: Optional[float] = 0.95,
@@ -268,7 +279,12 @@ def famp_growth_rate(
     """
     # ffill() to ensure nans will not propagate to
     # contaminate the results via finite differencing
-    sFAGR = np.log(r).ffill('rtime').differentiate('rtime')
+    if r.chunksizes is not None and 'rtime' in r.chunksizes and len(r.chunksizes['rtime']) > 1:
+        # for synthetic drifters that rtime is chunked for long-term tracking
+        sFAGR = np.log(r).differentiate('rtime')
+    else:
+        # for real drifters that t-lengths are not equal
+        sFAGR = np.log(r).ffill('rtime').differentiate('rtime')
     
     p = 'a' # default: average over all samples
 
@@ -281,21 +297,21 @@ def famp_growth_rate(
     def how_to_mean(v, r):
         if mean_at == 'const-t':
             if samples == 'all':
-                return v.mean('pair')
+                return v.mean('pair').astype(r.dtype)
             elif samples == 'positive':
-                return v.where(v>0).mean('pair')
+                return v.where(v>0).mean('pair').astype(r.dtype)
             elif samples == 'negative':
-                return v.where(v<0).mean('pair')
+                return v.where(v<0).mean('pair').astype(r.dtype)
             else:
                 raise Exception(f'unsupported samples {samples}, '+
                                 f'should be one of [all, positive, negative]')
         elif mean_at == 'const-r':
             if samples == 'all':
-                return mean_at_rbin(v, r, rbins)
+                return mean_at_rbin(v, r, rbins).astype(r.dtype)
             elif samples == 'positive':
-                return mean_at_rbin(v, r, rbins, cond=v>0)
+                return mean_at_rbin(v, r, rbins, cond=v>0).astype(r.dtype)
             elif samples == 'negative':
-                return mean_at_rbin(v, r, rbins, cond=v<0)
+                return mean_at_rbin(v, r, rbins, cond=v<0).astype(r.dtype)
             else:
                 raise Exception(f'unsupported samples {samples}, '+
                                 f'should be one of [all, positive, negative]')
@@ -314,12 +330,13 @@ def famp_growth_rate(
                ub.rename(f'UBFAGR{p}_{mean_at[-1]}')
 
 
-def init_memory(
+def initial_memory(
     rx: xr.DataArray,
     ry: xr.DataArray,
     du: xr.DataArray,
     dv: xr.DataArray,
     r: xr.DataArray,
+    order: int = 1,
     rbins: Optional[xr.DataArray] = default_rbins,
     mean_at: Literal['const-t', 'const-r'] = 'const-t',
     ensemble: Optional[int] = 0,
@@ -327,7 +344,9 @@ def init_memory(
     nproc: int = 1
 ) -> Union[xr.DataArray,
            Tuple[xr.DataArray, xr.DataArray, xr.DataArray]]:
-    """Calculate initial memory
+    """Calculate initial memory for initial separation vector r0
+    
+    Defined as <(r0 \\cdot v)**order> or <(r0 \\cdot a)**order>, depending on the input.
     
     Parameters
     ----------
@@ -341,6 +360,8 @@ def init_memory(
         Meridional component of relative velocity.
     r: xarray.DataArray
         Relative separation.
+    order: int
+        Order of the moment
     rbins: xr.DataArray
         A given set of separation bins used to average.
     mean_at: str
@@ -360,14 +381,14 @@ def init_memory(
     ub: xarray.DataArray
         Upper-bound of confidence interval
     """
-    initm = rx.isel(rtime=0) * du + ry.isel(rtime=0) * dv
+    initm = (rx.isel(rtime=0) * du + ry.isel(rtime=0) * dv)**order
     
     # define how to take average
     def how_to_mean(v, r):
         if mean_at == 'const-t':
-            return v.mean('pair')
+            return v.mean('pair').astype(r.dtype)
         elif mean_at == 'const-r':
-            return mean_at_rbin(v, r, rbins)
+            return mean_at_rbin(v, r, rbins).astype(r.dtype)
         else:
             raise Exception(f'unsupported mean_at string {mean_at}, '+
                             f'should be one of [const-t, const-r]')
@@ -437,13 +458,13 @@ def anisotropy(
             ry2m = (ry**2.0).mean('pair')
             rxym = rxy.mean('pair')
             ra2m, rb2m, _ = principle_axis_components(rx2m, ry2m, rxym)
-            return np.sqrt(ra2m / rb2m)
+            return np.sqrt(ra2m / rb2m).astype(r.dtype)
         elif mean_at == 'const-r':
             rx2m = mean_at_rbin(rx**2.0, r, rbins)
             ry2m = mean_at_rbin(ry**2.0, r, rbins)
             rxym = mean_at_rbin(rxy, r, rbins)
             ra2m, rb2m, _ = principle_axis_components(rx2m, ry2m, rxym)
-            return np.sqrt(ra2m / rb2m)
+            return np.sqrt(ra2m / rb2m).astype(r.dtype)
         else:
             raise Exception(f'unsupported mean_at string {mean_at}, '+
                             f'should be one of [const-t, const-r]')
@@ -459,7 +480,7 @@ def anisotropy(
                ub.rename(f'UBaniso_{mean_at[-1]}')
 
 
-def lagr_vel_corr(
+def lagrangian_velocity_correlation(
     uv: xr.DataArray,
     vs1: xr.DataArray,
     vs2: xr.DataArray,
@@ -508,12 +529,12 @@ def lagr_vel_corr(
             uvm = uv.mean('pair')
             v1m = (v1**2.0).mean('pair')
             v2m = (v2**2.0).mean('pair')
-            return (2.0 * uvm) / (v1m + v2m)
+            return ((2.0 * uvm) / (v1m + v2m)).astype(r.dtype)
         elif mean_at == 'const-r':
             uvm = mean_at_rbin(uv     , r, rbins)
             v1m = mean_at_rbin(v1**2.0, r, rbins)
             v2m = mean_at_rbin(v2**2.0, r, rbins)
-            return (2.0 * uvm) / (v1m + v2m)
+            return ((2.0 * uvm) / (v1m + v2m)).astype(r.dtype)
         else:
             raise Exception(f'unsupported mean_at string {mean_at}, '+
                             f'should be one of [const-t, const-r]')
@@ -568,11 +589,11 @@ def kurtosis(
         if mean_at == 'const-t':
             r4m = (r**4).mean('pair')
             r2m = (r**2).mean('pair')
-            return r4m / r2m ** 2
+            return (r4m / r2m ** 2).astype(r.dtype)
         elif mean_at == 'const-r':
             r4m = mean_at_rbin(r**4, r, rbins)
             r2m = mean_at_rbin(r**2, r, rbins)
-            return r4m / r2m ** 2
+            return (r4m / r2m ** 2).astype(r.dtype)
         else:
             raise Exception(f'unsupported mean_at string {mean_at}, '+
                             f'should be one of [const-t, const-r]')
@@ -588,7 +609,7 @@ def kurtosis(
                ub.rename(f'UBKu_{mean_at[-1]}')
 
 
-def cen_vul_exp(
+def cencini_vulpiani_exponent(
     r: xr.DataArray,
     rbins: Optional[xr.DataArray] = default_rbins,
     mean_at: Literal['const-t', 'const-r'] = 'const-t',
@@ -630,25 +651,25 @@ def cen_vul_exp(
         K2 = r2.differentiate('rtime') / 2.0
         
         if mean_at == 'const-t':
-            return K2.mean('pair') / r2.mean('pair')
+            return (K2.mean('pair') / r2.mean('pair')).astype(r.dtype)
         elif mean_at == 'const-r':
-            return mean_at_rbin(K2, r, rbins) / rbins**2.0
+            return (mean_at_rbin(K2, r, rbins) / rbins**2.0).astype(r.dtype)
         else:
             raise Exception(f'unsupported mean_at string {mean_at}, '+
                             f'should be one of [const-t, const-r]')
         
     if ensemble <= 0:
-        return how_to_mean(r).rename(f'K2_{mean_at[-1]}')
+        return how_to_mean(r).rename(f'CVE_{mean_at[-1]}')
     else:
         lb, ub = bootstrap(how_to_mean, [r], {},
                            ensemble=ensemble, CI=CI, nproc=nproc)
         
-        return how_to_mean(r).rename(f'K2_{mean_at[-1]}'),\
-               lb.rename(f'LBK2_{mean_at[-1]}'),\
-               ub.rename(f'UBK2_{mean_at[-1]}')
+        return how_to_mean(r).rename(f'CVE_{mean_at[-1]}'),\
+               lb.rename(f'LBCVE_{mean_at[-1]}'),\
+               ub.rename(f'UBCVE_{mean_at[-1]}')
 
 
-def fsize_lyap_exp(
+def finite_size_lyapunov_exponent_bak(
     r: xr.DataArray,
     rbins: Optional[xr.DataArray] = default_rbins,
     mean_at: Literal['const-t', 'const-r'] = 'const-r',
@@ -680,7 +701,7 @@ def fsize_lyap_exp(
     Returns
     -------
     FSLE: float
-        Finite-Scale Lyapunov Exponent.
+        Finite-Size Lyapunov Exponent.
     lb: xarray.DataArray
         Lower-bound of confidence interval
     ub: xarray.DataArray
@@ -696,16 +717,17 @@ def fsize_lyap_exp(
             timeInt = np.linspace(rtime[0], rtime[-1], int((len(rtime)-1)*interpT+1))
             rinterp = r_single.interp(rtime=timeInt)
         elif interpT == 1:
-            rinterp = r_single
+            rinterp = r_single.load()
         else:
             raise Exception(f'invalid interpT {interpT}, should be larger than 0')
         
         rd = rinterp[rinterp.argmin().values:]
+        
         return xr.where(rd > rbins, 1, np.nan).idxmax('rtime')
     
     alpha = rbins.values[-1] / rbins.values[-2] # ratio of neighbouring bins
 
-    # loop over each pair to get Td
+    # loop over each pair to get Td, but too slow!!!!!!
     Td = []
     for i in tqdm(range(len(r['pair'])), ncols=80):
         Td.append(get_Td(r.isel(pair=i), rbins))
@@ -717,7 +739,7 @@ def fsize_lyap_exp(
     
     # define how to take average
     def how_to_mean(v):
-        return v.mean('pair')
+        return v.mean('pair').astype(r.dtype)
         
     if ensemble <= 0:
         return how_to_mean(FSLE).rename(f'FSLE_{mean_at[-1]}')
@@ -730,7 +752,7 @@ def fsize_lyap_exp(
                ub.rename(f'UBFSLE_{mean_at[-1]}')
 
 
-def fsize_lyap_exp2(
+def finite_size_lyapunov_exponent(
     r: xr.DataArray,
     rbins: Optional[xr.DataArray] = default_rbins,
     mean_at: Literal['const-t', 'const-r'] = 'const-r',
@@ -762,7 +784,7 @@ def fsize_lyap_exp2(
     Returns
     -------
     FSLE: float
-        Finite-Scale Lyapunov Exponent.
+        Finite-Size Lyapunov Exponent.
     lb: xarray.DataArray
         Lower-bound of confidence interval
     ub: xarray.DataArray
@@ -772,34 +794,46 @@ def fsize_lyap_exp2(
         raise Exception(f'unsupported mean_at string {mean_at}, '+
                         f'should be only const-r')
     
+    if interpT > 1:
+        rtime = r.rtime
+        timeInt = np.linspace(rtime[0], rtime[-1], int((len(rtime)-1)*interpT+1))
+        rinterp = r.interp(rtime=timeInt)
+    elif interpT == 1:
+        rinterp = r
+    else:
+        raise Exception(f'invalid interpT {interpT}, should be an integer larger than 0')
+    
     def get_Td(r_single, rbins, rtime):
         # r_single: shape (rtime,)
-        # rbins: shape (rbin,)
-        # rtime: shape (rtime,)
-        # 插值用 np.interp
-        # 这里假设 r_single 已经是 numpy 数组
-        # 找最小值索引
+        # rbins:   shape (rbin,)
+        # rtime:   shape (rtime,)
+        
+        # find index of minimum separation
         minidx = np.argmin(r_single)
-        rd = r_single[minidx:]
-        rtime_rd = rtime[minidx:]
-        # 找每个 rbin 第一次超过的时间索引
-        Td = np.full_like(rbins, np.nan)
-        for i, rb in enumerate(rbins):
-            mask = rd > rb
-            if np.any(mask):
-                Td[i] = rtime_rd[np.argmax(mask)]
+        rd = r_single[minidx:]    # starts from minidx
+        rtime_rd = rtime[minidx:] # starts from minidx
+        
+        # Vectorized: compare all time steps × all rbins at once
+        # mask shape: (len(rd), len(rbins))
+        mask = rd[:, None] > rbins[None, :]
+        
+        # First True index along time axis (argmax returns 0 for all-False)
+        first_idx = np.argmax(mask, axis=0)
+        has_crossed = np.any(mask, axis=0)
+        
+        Td = np.where(has_crossed, rtime_rd[first_idx], np.nan)
         return Td
 
     Td = xr.apply_ufunc(
         get_Td,
-        r.chunk({'rtime':-1}) if r.chunks else r,
+        rinterp.chunk({'rtime':-1}) if rinterp.chunks else rinterp,
         rbins,
-        r['rtime'],
+        rinterp['rtime'],
         input_core_dims=[['rtime'], ['rbin'], ['rtime']],
         output_core_dims=[['rbin']],
         vectorize=True,
-        dask='parallelized' if r.chunks else False,
-        output_dtypes=[float]
+        dask='parallelized' if rinterp.chunks else False,
+        output_dtypes=[r.dtype]
     )
 
     Td = Td.assign_coords(pair=r['pair'], rbin=rbins)
@@ -811,7 +845,7 @@ def fsize_lyap_exp2(
     
     # define how to take average
     def how_to_mean(v):
-        return v.mean('pair')
+        return v.mean('pair').astype(r.dtype)
         
     if ensemble <= 0:
         return how_to_mean(FSLE).rename(f'FSLE_{mean_at[-1]}')
@@ -824,22 +858,21 @@ def fsize_lyap_exp2(
                ub.rename(f'UBFSLE_{mean_at[-1]}')
 
 
-def cumul_inv_sep_time(
+def cumulative_inverse_separation_time(
     r: xr.DataArray,
     rbins: Optional[xr.DataArray] = default_rbins,
     lower: Optional[float] = 0.1,
     upper: Optional[float] = 0.9,
     mean_at: Literal['const-t', 'const-r'] = 'const-t',
     maskout: List[float] = [1e-8, 5e4],
-    interpT: Optional[int] = 1,
     ensemble: Optional[int] = 0,
     CI: Optional[float] = 0.95,
     nproc: int = 1
 ) -> Union[xr.DataArray,
            Tuple[xr.DataArray, xr.DataArray, xr.DataArray]]:
-    """Definition of cumulative inverse separation time
+    """Calculate cumulative inverse separation time
 
-    This is a new diagnostic proposed by LaCasce and Meunier (2022, JFM).
+    This is a diagnostic proposed by LaCasce and Meunier (2022, JFM), similar to FSLE.
     
     Parameters
     ----------
@@ -869,15 +902,17 @@ def cumul_inv_sep_time(
     # define how to take average
     def how_to_mean(v):
         if mean_at == 'const-r':
-            CDF = cumul_dens_func(prob_dens_func(v, rbins), rbins)
+            CDF = cumulative_density_function(probability_density_function(v, rbins), rbins)
             CDFrng = CDF.where(np.logical_and(CDF>lower, CDF<upper)).chunk({'rtime':-1})
             
-            slope, inter, rms = xr.apply_ufunc(semilog_fit, CDFrng['rtime'], CDFrng,
-                                               dask='parallelized',
-                                               input_core_dims=[['rtime'], ['rtime']],
-                                               output_core_dims=[[], [], []],
-                                               vectorize=True)
+            slope, inter = xr.apply_ufunc(semilog_fit, CDFrng['rtime'], CDFrng,
+                                          dask='parallelized',
+                                          input_core_dims=[['rtime'], ['rtime']],
+                                          output_core_dims=[[], []],
+                                        #   output_dtypes=[float, float],
+                                          vectorize=True)
             
+            # time for separation goes from 0 to r when CDF = 0.5
             fitted = np.exp((0.5 - inter) / slope)
             diff = fitted.diff('rbin')
             CIST  = 1.0 / diff
@@ -885,7 +920,7 @@ def cumul_inv_sep_time(
             if maskout:
                 CIST = CIST.where(np.logical_and(CIST>maskout[0], CIST<maskout[1]))
             
-            return CIST
+            return CIST.astype(v.dtype)
         else:
             raise Exception(f'unsupported mean_at string {mean_at}, '+
                             f'should be only const-r')
@@ -897,15 +932,15 @@ def cumul_inv_sep_time(
                            ensemble=ensemble, CI=CI, nproc=nproc)
         
         return how_to_mean(r).rename(f'CIST_{mean_at[-1]}'),\
-               lb.rename(f'LBFSLE_{mean_at[-1]}'),\
-               ub.rename(f'UBFSLE_{mean_at[-1]}')
+               lb.rename(f'LBCIST_{mean_at[-1]}'),\
+               ub.rename(f'UBCIST_{mean_at[-1]}')
 
 
-def prob_dens_func(
+def probability_density_function(
     r: xr.DataArray,
     rbins: Optional[xr.DataArray] = default_rbins,
 ) -> xr.DataArray:
-    """Definition of probability density function of pair separation r
+    """Calculate probability density function of pair separation r
     
     Parameters
     ----------
@@ -923,14 +958,14 @@ def prob_dens_func(
     PDF = histogram(r.rename('r'), bins=tmp, dim=['pair'], density=True).rename('PDF')
     PDF['r_bin'] = tmp[1:]
     
-    return PDF.rename({'r_bin':'rbin'})
+    return PDF.rename({'r_bin':'rbin'}).astype(r.dtype)
 
 
-def cumul_dens_func(
+def cumulative_density_function(
     PDF: xr.DataArray,
     bin_edges: Union[xr.DataArray, np.array] = None,
 ) -> xr.DataArray:
-    """Definition of cumulative density function of pair separation r
+    """Calculate cumulative density function of pair separation r
     
     Parameters
     ----------
@@ -945,14 +980,14 @@ def cumul_dens_func(
         Cumulative density function.
     """
     if bin_edges is None:
-        values = PDF['rbin'].diff('rbin').values
+        values = PDF['rbin'].diff('rbin').values.astype(PDF.dtype)
         values = np.insert(values, 0, values[0])
         bin_width = xr.DataArray(values, dims='rbin', coords={'rbin':PDF['rbin'].values})
     else:
-        bin_width = xr.DataArray(np.diff(bin_edges), dims='rbin',
+        bin_width = xr.DataArray(np.diff(bin_edges).astype(PDF.dtype), dims='rbin',
                                  coords={'rbin':PDF['rbin'].values})
     
-    return (PDF * bin_width).cumsum('rbin').rename('CDF')
+    return (PDF * bin_width).cumsum('rbin').rename('CDF').astype(PDF.dtype)
 
 
 """
@@ -983,9 +1018,9 @@ def principle_axis_components(
     ang: xr.DataArray
         Angle between major and zonal components.
     """
-    ra2 = (rx2m + ry2m + np.sqrt((rx2m - ry2m)**2 + 4 * rxym**2)) / 2.0
-    rb2 = rx2m + ry2m - ra2
-    ang = np.arctan2(ra2 - rx2m, rxym)
+    ra2 = ((rx2m + ry2m + np.sqrt((rx2m - ry2m)**2 + 4 * rxym**2)) / 2.0).astype(rx2m.dtype)
+    rb2 = (rx2m + ry2m - ra2).astype(rx2m.dtype)
+    ang = np.arctan2(ra2 - rx2m, rxym).astype(rx2m.dtype)
     
     return ra2, rb2, ang
 
@@ -1012,8 +1047,7 @@ def rotational_divergent_components(
     """
     rr = S2ll.rbin
     
-    S2rr = S2tr + ((S2tr - S2ll)/rr*rr.diff('rbin')).cumsum('rbin')
-    S2dd = S2ll - ((S2tr - S2ll)/rr*rr.diff('rbin')).cumsum('rbin')
+    S2rr = (S2tr + ((S2tr - S2ll)/rr*rr.diff('rbin')).cumsum('rbin')).astype(S2ll.dtype)
+    S2dd = (S2ll - ((S2tr - S2ll)/rr*rr.diff('rbin')).cumsum('rbin')).astype(S2ll.dtype)
     
     return S2rr.rename('S2rr'), S2dd.rename('S2dd')
-
