@@ -4,6 +4,41 @@ Created on 2025.02.26
 
 @author: MiniUFO
 Copyright 2018. All rights reserved. Use is subject to license terms.
+
+Module: xdispersion.measures
+============================
+
+Diagnostic measure functions for two-particle (relative dispersion)
+statistics.
+
+**Naming convention**
+
+Each function returns a DataArray whose ``.name`` encodes the measure
+and averaging mode:
+
+- Suffix ``_t`` → averaged at **constant time** (const-t):
+  pairs start together at ``rtime = 0``; the statistic is a function
+  of elapsed time.
+
+- Suffix ``_r`` → averaged at **constant separation** (const-r):
+  pairs are binned by current separation; the statistic is a function
+  of separation distance.
+
+**Bootstrapping**
+
+When ``ensemble > 0``, each function returns a 3-tuple
+``(value, lower_bound, upper_bound)`` where the bounds are obtained
+by resampling pairs with replacement and computing the ``CI``
+confidence interval.
+
+**Required building blocks**
+
+Most functions take pre-computed building blocks from
+:class:`~xdispersion.core.RelativeDispersion`:
+
+- Separation: ``rx, ry, rxy, r, rpb``
+- Velocity:   ``du, dv, dul, dut, vmi, vmj, uv``
+- Acceleration: ``dax, day, dal, dat, ai, aj, axy``
 """
 import numpy as np
 import xarray as xr
@@ -31,23 +66,31 @@ def relative_dispersion(
     nproc: int = 1
 ) -> Union[xr.DataArray,
            Tuple[xr.DataArray, xr.DataArray, xr.DataArray]]:
-    """Calculate moments of relative separation
+    r"""Compute the N-th moment of relative separation.
+
+    .. math::
+        \mathrm{rN} = \langle r^n \rangle
+
+    For ``order=2`` this is the classic *relative dispersion*
+    (Richardson 1926).  For ``order=1`` it is the mean separation.
 
     Parameters
     ----------
-    r: xarray.DataArray
-        Relative separation.
-    order: int
-        Order of moment for dispersion
-    rbins: xr.DataArray
-        A given set of separation bins used to average.
-    mean_at: str
-        Condition of average. Should be one of ['const-t', 'const-r'],
-        indicating average at constant time or separation.
-    ensemble: int
-        Times to bootstrapping.  0 for no bootstrapping
-    CI: float
-        Confidence interval for bootstrapping
+    r : xarray.DataArray
+        Relative separation ``[pair, rtime]`` (from
+        :meth:`~xdispersion.core.RelativeDispersion.separation_measures`).
+    order : int, default 2
+        Moment order :math:`n`.
+    rbins : xarray.DataArray
+        Separation bins for const-r averaging.
+    mean_at : {'const-t', 'const-r'}
+        Averaging mode.
+    ensemble : int, default 0
+        Number of bootstrap resamples (0 disables).
+    CI : float, default 0.95
+        Confidence interval level.
+    nproc : int, default 1
+        Number of processes for bootstrap.
     
     Returns
     -------
@@ -92,23 +135,36 @@ def velocity_structure_function(
     nproc: int = 1
 ) -> Union[xr.DataArray,
            Tuple[xr.DataArray, xr.DataArray, xr.DataArray]]:
-    """Calculate velocity structure function
+    r"""Compute the velocity structure function.
 
-    Given du, one gets zonal component S2x;
-    Given dv, one gets meridional component S2y;
-    Given hypot(du, dv), one gets total S2;
-    Given dul, one gets longitudinal component S2ll;
-    Given dut, one gets transversal component S2tr;
-    Given dul*hypot(du, dv)**2, with order=1, one gets S3;
-    
+    .. math::
+        \mathrm{S}n = \langle |\delta \mathbf{u}|^n \rangle
+
+    The input ``du`` determines which component is computed:
+
+    - ``np.hypot(du, dv)`` → total S2
+    - ``dul``              → longitudinal S2ll
+    - ``dut``              → transversal S2tr
+    - ``dul*(du**2+dv**2)`` with ``order=1`` → S3
+
     Parameters
     ----------
-    du: xarray.DataArray
-        relative velocity.
-    r: xarray.DataArray
-        Relative separation.
-    order: int
-        Order of moment for dispersion
+    du : xarray.DataArray
+        Relative velocity (or any quantity whose moment is desired).
+    r : xarray.DataArray
+        Relative separation ``[pair, rtime]``.
+    order : int, default 2
+        Moment order :math:`n`.
+    rbins : xarray.DataArray
+        Separation bins for const-r averaging.
+    mean_at : {'const-t', 'const-r'}, default 'const-r'
+        Averaging mode.
+    ensemble : int, default 0
+        Bootstrap resamples (0 disables).
+    CI : float, default 0.95
+        Confidence interval level.
+    nproc : int, default 1
+        Number of processes for bootstrap.
     rbins: xr.DataArray
         A given set of separation bins used to average.
     mean_at: str

@@ -4,6 +4,41 @@ Created on 2025.02.26
 
 @author: MiniUFO
 Copyright 2018. All rights reserved. Use is subject to license terms.
+
+Module: xdispersion.core
+========================
+
+This module defines the :class:`RelativeDispersion` class, which is the
+main entry point for two-particle (relative dispersion) analysis.
+
+**Key concepts:**
+
+- **Ragged vs. non-ragged**:  ragged datasets (e.g. from
+  `clouddrift <https://github.com/Cloud-Drift/clouddrift>`__) store
+  trajectories of unequal length in a flat obs-dimension indexed by a
+  ``rowsize`` array.  Non-ragged datasets have a uniform time dimension
+  shared by all particles.
+
+- **Original vs. chance pairs**:  *original* pairs are those whose
+  **initial** separation falls within a prescribed range ``r0``.
+  *Chance* pairs are identified when the separation **first** drops
+  into the range at some later time.
+
+- **``chunk`` parameter**:  controls **pair-data** chunking (not
+  drifter/particle chunking).  When set, :meth:`load_variable` returns
+  dask-backed arrays so that peak memory is proportional to ``chunk``
+  rather than the total pair count.  Set to ``None`` for in-memory
+  (numpy) processing when the pair count is small.
+
+**Typical workflow**::
+
+    rd = RelativeDispersion(ds, xpos='lon', ypos='lat',
+                            uvel='u', vvel='v', time='time',
+                            ID='traj', coord='latlon',
+                            ragged=True, maxtlen=2880)
+    p_all = rd.get_all_pairs()
+    p_ori = rd.get_original_pairs(p_all, r0=[1, 10])
+    rx, ry, rxy, r, rpb = rd.separation_measures(p_ori)
 """
 import numpy as np
 import xarray as xr
@@ -22,7 +57,18 @@ Core classes are defined below
 
 class RelativeDispersion(object):
     """
-    This class is designed for performing relative dispersion analysis.
+    Core class for relative dispersion (two-particle) analysis.
+
+    Supports both **ragged** (unequal-length trajectories, e.g. GLAD
+    drifters) and **non-ragged** (uniform-length, e.g. synthetic
+    particles) datasets, in either ``latlon`` or ``cartesian``
+    coordinates.
+
+    The ``chunk`` parameter is the unified memory-control knob: it
+    controls how many **pairs** are processed at a time when loading
+    pair data via :meth:`load_variable`.  Smaller chunks → lower peak
+    memory but higher overhead; ``None`` → everything in numpy (fastest
+    for small pair counts).
     """
     def __init__(self,
         ds_traj: xr.Dataset,
@@ -112,19 +158,33 @@ class RelativeDispersion(object):
     "       Below are particle-related functions.        "
     """"""""""""""""""""""""""""""""""""""""""""""""""""""
     def get_all_pairs(self) -> xr.Dataset:
-        """Get all available pairs into a Dataset
-        
-        This extracts pair information from the ragged trajectory dataset.
-    
+        """Generate all possible pairs from the trajectory dataset.
+
+        For *ragged* data, every pair of trajectories that has temporal
+        overlap is included.  For *non-ragged* data, all
+        :math:`C(n,2) = n(n-1)/2` pairs are generated.
+
+        The returned Dataset contains:
+
+        - ``pID``   – (pair, 2) particle IDs for each pair
+        - ``tlen``  – (pair,) overlapping time length (in steps)
+        - ``stim``  – (pair,) start time of the overlap
+        - ``r0``    – (pair,) initial separation distance
+        - ``xpos0`` – (pair, 2) initial x-positions
+        - ``ypos0`` – (pair, 2) initial y-positions
+        - ``idxI``  – (pair, 2) global start/end indices into the ragged
+          array for particle *i*  (ragged only)
+        - ``idxJ``  – (pair, 2) same for particle *j*  (ragged only)
+
         Parameters
         ----------
-        dset: xarray.DataArray
-            A ragged dataset of trajectory, usually generated from clouddrift.
-    
+        (none — uses ``self.ds_traj``)
+
         Returns
         -------
-        pinfo: xarray.Dataset
-            Pair information as a xarray.Dataset.
+        pairs : xarray.Dataset
+            Pair metadata with dimension ``pair`` (and ``particle``
+            for the two-particle arrays).
         """
         dset = self.ds_traj
         
@@ -208,22 +268,26 @@ class RelativeDispersion(object):
         pairs: xr.Dataset,
         r0: List[float]
     ) -> xr.Dataset:
-        """Get original pairs from a given pairs Dataset
+        """Select *original* pairs whose initial separation is within ``r0``.
 
-        Original pairs are identified when initial separations are
-        within the given range of r0 = [rmin, rmax].
-        
+        Original pairs are those where the **initial** separation
+        :math:`r(t=0)` falls in ``[r0[0], r0[1])``.  These are the
+        pairs used for constant-time (const-t) statistics, where all
+        pairs start at the same relative time ``rtime = 0``.
+
         Parameters
         ----------
-        pairs: xarray.Dataset
-            Information of a given pairs.
-        r0: float or list of float
-            Range of initial separation for selecting original pairs.
-        
+        pairs : xarray.Dataset
+            Output of :meth:`get_all_pairs`.
+        r0 : float or list of float
+            If a single float ``r``, it is interpreted as ``[0, r]``.
+            If a list ``[rmin, rmax]``, pairs with ``rmin <= r0 < rmax``
+            are selected.
+
         Returns
         -------
-        pair_c: xarray.Dataset
-            Information of chance pairs.
+        pair_o : xarray.Dataset
+            Subset of *pairs* satisfying the initial-separation criterion.
         """
         if isinstance(r0, float):
             if r0 <= 0:
@@ -245,22 +309,30 @@ class RelativeDispersion(object):
         pairs: xr.Dataset,
         r0: List[float]
     ) -> xr.Dataset:
-        """Get chance pairs from a given pairs Dataset
+        """Select *chance* pairs whose minimum separation enters ``r0``.
 
-        Chance pairs are identified when the separations are within
-        the given range of r0 = [rmin, rmax] for the first time.
-        
+        For each pair, the time series of separation is scanned for its
+        **minimum**.  If that minimum falls within ``[rmin, rmax)`` and
+        occurs at a non-zero relative time, the pair is re-labeled as a
+        chance pair starting from that minimum-separation time.  The
+        ``stim``, ``tlen``, ``r0``, ``xpos0``, ``ypos0``, ``idxI`` and
+        ``idxJ`` fields are adjusted accordingly.
+
+        Chance pairs are used for constant-separation (const-r)
+        statistics such as FSLE and CIST.
+
         Parameters
         ----------
-        pairs: xarray.Dataset
-            Information of a given pairs.
-        r0: float or list of float
-            Range of initial separation for selecting original pairs.
-        
+        pairs : xarray.Dataset
+            Output of :meth:`get_all_pairs`.
+        r0 : float or list of float
+            Same interpretation as in :meth:`get_original_pairs`.
+
         Returns
         -------
-        pair_c: xarray.Dataset
-            Information of chance pairs.
+        pair_c : xarray.Dataset
+            Subset of *pairs* re-labeled as chance pairs, with updated
+            start times and indices.
         """
         if isinstance(r0, float):
             if r0 <= 0:
@@ -319,25 +391,40 @@ class RelativeDispersion(object):
         pairs: xr.Dataset,
         vname: str,
     ) -> xr.DataArray:
-        """load a variable into memory from the ragged trajectory dataset
-        
-        The variable should be one of (xpos, ypos, uvel, vvel).  Its dimension
-        should be v[pair, particle, rtime], where:
-        - 'pair'     is for the dimension of different pairs;
-        - 'particle' is for two particles [0, 1] in a single pair, and
-        - 'rtime'    is for relative time starting when the pair is identified.
-        
+        """Load a trajectory variable for all pairs as a 3-D DataArray.
+
+        The returned array has dimensions ``[pair, particle, rtime]``
+        where:
+
+        - ``pair``     – pair index (0 .. N-1)
+        - ``particle`` – 0 or 1 (the two particles in a pair)
+        - ``rtime``    – relative time from pair start, in units of
+          ``self.dt``
+
+        **Ragged path**:  extracts ragged-array slices using
+        ``idxI`` / ``idxJ`` from *pairs*.  When ``self.chunk`` is set,
+        each chunk is loaded lazily via ``dask.array.from_delayed``,
+        keeping peak memory proportional to ``chunk`` rather than ``N``.
+        When ``chunk`` is ``None``, the full array is materialised in
+        numpy (fastest for small N).
+
+        **Non-ragged path**:  selects values by particle ID using
+        xarray ``.sel()`` and, when ``chunk`` is set, re-chunks along
+        the ``pair`` dimension.
+
         Parameters
         ----------
-        pairs: xarray.Dataset
-            Information of a given pairs.
-        vname: str
-            Variable name in (xpos, ypos, uvel, vvel) for the ragged dataset.
-        
+        pairs : xarray.Dataset
+            Output of :meth:`get_all_pairs` (or a filtered subset).
+        vname : str
+            One of the variable names passed to the constructor
+            (``xpos``, ``ypos``, ``uvel``, ``vvel``).
+
         Returns
         -------
-        re: xarray.DataArray
-            A variable filled with data from ragged dataset.
+        re : xarray.DataArray
+            3-D array ``[pair, particle, rtime]``.  Padded with NaN
+            where the overlap is shorter than ``maxtlen`` (ragged only).
         """
         N = len(pairs['pair'])
         v = self.ds_traj[vname]
@@ -436,25 +523,30 @@ class RelativeDispersion(object):
         pairs: xr.Dataset
     ) -> Tuple[xr.DataArray, xr.DataArray, xr.DataArray,
                xr.DataArray, xr.DataArray]:
-        """Calculate separation measures from a set of pairs
-    
+        """Compute separation-related building blocks.
+
+        Calls :meth:`load_variable` for ``xpos`` and ``ypos``, then
+        derives:
+
+        - ``rx``, ``ry``  – zonal / meridional separation components
+        - ``rxy``         – cross term ``rx * ry``
+        - ``r``           – total separation ``|r|`
+        - ``rpb``         – perturbation separation (deviation from
+          initial position), i.e. how far the *change* in separation
+          has grown relative to ``t=0``
+
+        For ``latlon`` coordinates, geographic distances are computed
+        using the great-circle formula with ``self.Rearth``.
+
         Parameters
         ----------
-        pairs: xarray.Dataset
-            Information of a given pairs.
-    
+        pairs : xarray.Dataset
+            Output of :meth:`get_all_pairs` (or a filtered subset).
+
         Returns
         -------
-        rx: xarray.DataArray
-            Zonal component of separation.
-        ry: xarray.DataArray
-            meridional component of separation.
-        rxy: xarray.DataArray
-            Cross component of separation.
-        r: xarray.DataArray
-            total separation.
-        rpb: xarray.DataArray
-            perturbation separation.
+        rx, ry, rxy, r, rpb : xarray.DataArray
+            Each has dimensions ``[pair, rtime]``.
         """
         xpos = self.load_variable(pairs, self.xpos)
         ypos = self.load_variable(pairs, self.ypos)
@@ -492,29 +584,29 @@ class RelativeDispersion(object):
         pairs: xr.Dataset
     ) -> Tuple[xr.DataArray, xr.DataArray, xr.DataArray, xr.DataArray,
                xr.DataArray, xr.DataArray, xr.DataArray]:
-        """Calculate velocity measures from a set of pairs
-        
+        """Compute velocity-related building blocks.
+
+        Loads ``xpos``, ``ypos``, ``uvel``, ``vvel`` and derives:
+
+        - ``du``, ``dv``  - velocity difference (particle i - particle j)
+        - ``dul``         - longitudinal velocity difference
+          (projection along the separation vector)
+        - ``dut``         - transversal velocity difference
+          (projection perpendicular to the separation vector)
+        - ``vmi``         - velocity magnitude of particle i
+        - ``vmj``         - velocity magnitude of particle j
+        - ``uv``          - inner product of the two velocities
+          (used for Lagrangian velocity correlation)
+
         Parameters
         ----------
-        pairs: xarray.Dataset
-            Information of a given pairs.
-    
+        pairs : xarray.Dataset
+            Output of :meth:`get_all_pairs` (or a filtered subset).
+
         Returns
         -------
-        du: xarray.DataArray
-            delta u.
-        dv: xarray.DataArray
-            delta v.
-        dul: xarray.DataArray
-            longitudinal velocity.
-        dut: xarray.DataArray
-            transversal velocity.
-        vsi: xarray.DataArray
-            velocity magnitude of particle i.
-        vsj: xarray.DataArray
-            velocity magnitude of particle j.
-        uv: xarray.DataArray
-            inner product of two particle's velocities.
+        du, dv, dul, dut, vmi, vmj, uv : xarray.DataArray
+            Each has dimensions ``[pair, rtime]``.
         """
         xpos = self.load_variable(pairs, self.xpos)
         ypos = self.load_variable(pairs, self.ypos)
@@ -572,29 +664,11 @@ class RelativeDispersion(object):
         pairs: xr.Dataset
     ) -> Tuple[xr.DataArray, xr.DataArray, xr.DataArray, xr.DataArray,
                xr.DataArray, xr.DataArray, xr.DataArray]:
-        """Calculate acceleration measures from a set of pairs
-        
-        Parameters
-        ----------
-        pairs: xarray.Dataset
-            Information of a given pairs.
-    
-        Returns
-        -------
-        dax: xarray.DataArray
-            delta x-acceleration.
-        day: xarray.DataArray
-            delta y-acceleration.
-        dal: xarray.DataArray
-            longitudinal acceleration.
-        dat: xarray.DataArray
-            transversal acceleration.
-        ai: xarray.DataArray
-            acceleration magnitude of particle i.
-        aj: xarray.DataArray
-            acceleration magnitude of particle j.
-        axy: xarray.DataArray
-            inner product of two particle's accelerations.
+        """[Deprecated] Calculate acceleration by differentiating positions twice.
+
+        This is the position-differentiation version.  Use
+        :meth:`acceleration_measures` instead, which differentiates
+        velocities (more accurate when velocities are directly observed).
         """
         dt = self.dt
         
@@ -663,29 +737,27 @@ class RelativeDispersion(object):
         pairs: xr.Dataset
     ) -> Tuple[xr.DataArray, xr.DataArray, xr.DataArray, xr.DataArray,
                xr.DataArray, xr.DataArray, xr.DataArray]:
-        """Calculate acceleration measures from a set of pairs
-        
+        """Compute acceleration-related building blocks.
+
+        Loads ``xpos``, ``ypos``, ``uvel``, ``vvel`` and differentiates
+        velocities along ``rtime`` to obtain accelerations, then derives:
+
+        - ``dax``, ``day``  – acceleration difference (i − j)
+        - ``dal``           – longitudinal acceleration difference
+        - ``dat``           – transversal acceleration difference
+        - ``ai``, ``aj``    – acceleration magnitude of each particle
+        - ``axy``           – inner product of accelerations (used for
+          Lagrangian acceleration correlation)
+
         Parameters
         ----------
-        pairs: xarray.Dataset
-            Information of a given pairs.
-    
+        pairs : xarray.Dataset
+            Output of :meth:`get_all_pairs` (or a filtered subset).
+
         Returns
         -------
-        dax: xarray.DataArray
-            delta x-acceleration.
-        day: xarray.DataArray
-            delta y-acceleration.
-        dal: xarray.DataArray
-            longitudinal acceleration.
-        dat: xarray.DataArray
-            transversal acceleration.
-        ai: xarray.DataArray
-            acceleration magnitude of particle i.
-        aj: xarray.DataArray
-            acceleration magnitude of particle j.
-        axy: xarray.DataArray
-            inner product of two particle's accelerations.
+        dax, day, dal, dat, ai, aj, axy : xarray.DataArray
+            Each has dimensions ``[pair, rtime]``.
         """
         dt = self.dt
         

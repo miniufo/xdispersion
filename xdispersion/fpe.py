@@ -4,6 +4,25 @@ Created on 2025.04.20
 
 @author: MiniUFO
 Copyright 2018. All rights reserved. Use is subject to license terms.
+
+Module: xdispersion.fpe
+========================
+
+Numerical integration of the Fokker-Planck equation for the PDF of
+pair separations.
+
+Given an initial PDF and a scale-dependent diffusivity
+:math:`\\kappa(r)`, the Fokker-Planck equation
+
+.. math::
+    \\frac{\\partial P}{\\partial t} =
+    -\\frac{\\partial}{\\partial r}\\bigl[\\kappa(r)\\, P\\bigr]
+    + \\frac{1}{2}\\frac{\\partial^2}{\\partial r^2}
+    \\bigl[\\kappa(r)^2\\, P\\bigr]
+
+is integrated forward in time using RK4 / RK2 / Euler schemes.
+This allows comparison between observed and theoretically-predicted
+PDF evolution.
 """
 import numpy as np
 import numba as nb

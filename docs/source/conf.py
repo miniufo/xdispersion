@@ -15,7 +15,7 @@ import sys
 import datetime
 sys.path.append(os.path.abspath('.'))
 sys.path.insert(0, os.path.abspath('../../'))
-import xinvert
+import xdispersion
 
 
 # -- Project information -----------------------------------------------------
@@ -25,9 +25,9 @@ copyright = f'{datetime.datetime.today().year}, MiniUFO'
 author = 'MiniUFO'
 
 # The full version, including alpha/beta/rc tags
-version = xinvert.__version__
+version = xdispersion.__version__
 # The full version, including alpha/beta/rc tags
-release = xinvert.__version__
+release = xdispersion.__version__
 
 
 # -- General configuration ---------------------------------------------------
@@ -50,6 +50,15 @@ extensions = [
     #'myst_nb',
     #'myst_parser',            # Markdown
 ]
+
+# -- nbsphinx options --------------------------------------------------------
+# Execute notebooks during build.  'off' = use pre-computed cell outputs
+# (notebooks must be saved with outputs).  'auto' = execute if needed.
+nbsphinx_execute = 'auto'
+# Allow errors in notebook execution (set to 'warn' to see warnings)
+nbsphinx_allow_errors = False
+# Timeout for each cell (seconds)
+nbsphinx_timeout = 300
 
 # The master toctree document.
 # master_doc = 'index'

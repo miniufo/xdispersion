@@ -19,9 +19,8 @@ pairs.  This is a classical problem of turbulence and geophysical fluid dynamics
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
-   
+
    Installation
-   notebooks/00_Introduction
    Examples
    Contributors
 

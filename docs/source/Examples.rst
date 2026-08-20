@@ -12,10 +12,13 @@ Users are also encouraged to add their own examples.
 .. toctree::
    :maxdepth: 2
    :caption: Examples usage:
-   
+
    notebooks/01.SelectingPairs
    notebooks/02.PlotTrajectory
    notebooks/03.BasicStatistics
    notebooks/04.AnalyticPrediction
    notebooks/05.MoreStatistics
+   notebooks/06.Reproduce2016
+   notebooks/07.Reproduce2022
+   notebooks/08.Reproduce2010
   

@@ -4,6 +4,26 @@ Created on 2024.11.20
 
 @author: MiniUFO
 Copyright 2018. All rights reserved. Use is subject to license terms.
+
+Module: xdispersion.utils
+=========================
+
+Low-level helper functions used by :mod:`~xdispersion.core` and
+:mod:`~xdispersion.measures`.
+
+**Key functions**
+
+- :func:`geodist` -- great-circle distance between two points
+  (lat/lon coordinates).
+- :func:`gen_rbins` -- generate logarithmically-spaced separation bins.
+- :func:`mean_at_rbin` / :func:`sum_at_rbin` -- average/sum a quantity
+  by binning along a separation axis using xhistogram.
+- :func:`loglog_fit` / :func:`semilog_fit` -- 1-D linear fits in
+  log-log or semi-log space (used by CIST).
+- :func:`bootstrap` -- generic resampling-with-replacement for
+  confidence-interval estimation.
+- :func:`get_overlap_indices` -- find the temporal overlap window
+  between two ragged trajectories.
 """
 import numpy as np
 import xarray as xr

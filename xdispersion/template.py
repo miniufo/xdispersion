@@ -4,6 +4,30 @@ Created on 2024.11.20
 
 @author: MiniUFO
 Copyright 2018. All rights reserved. Use is subject to license terms.
+
+Module: xdispersion.template
+============================
+
+High-level orchestration for computing all (or a subset of) diagnostic
+measures in one call.
+
+**MEASURES registry**
+
+A global list ``MEASURES`` maps measure names (e.g. ``'r2_t'``,
+``'FSLE_r'``) to callables that take building-block arrays and
+keyword arguments.  :func:`cal_measures` iterates over this registry,
+calls each measure function, and assembles the results into a single
+:class:`xarray.Dataset`.
+
+**cal_measures options**
+
+- ``one_by_one=True``:  compute and ``.load()`` each measure
+  immediately, minimising peak memory but recomputing building blocks
+  for each measure (use with ``chunk > 0`` and dask-backed data).
+- ``one_by_one=False``:  build the full dask graph for all measures
+  and compute at once (faster, higher peak memory).
+- ``measures=[...]``:  compute only the named measures.
+- ``ensemble > 0``:  bootstrap confidence intervals.
 """
 import numpy as np
 import xarray as xr

@@ -1,6 +1,13 @@
-numba
+# Build dependencies for ReadTheDocs
 xarray
 dask
+numpy
+scipy
+tqdm
+xhistogram
+mpmath
+numba
 nbsphinx
 numpydoc
 sphinx-rtd-theme
+ipython

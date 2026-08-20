@@ -3,6 +3,19 @@
 Created on Thur Nov  20 17:24:46 2024
 
 @author: Yu-Kun Qian
+
+Module: xdispersion.analytics
+=============================
+
+Analytic (theoretical) predictions for relative-dispersion statistics.
+
+Provides closed-form expressions for relative dispersion, kurtosis,
+relative diffusivity, velocity structure functions, PDF of pair
+separations, and cumulative inverse separation time (CIST) under
+prescribed diffusivity / scaling regimes.
+
+These are useful as benchmarks against which the empirically-computed
+measures from :mod:`~xdispersion.measures` can be compared.
 """
 import numpy as np
 import mpmath as mpm

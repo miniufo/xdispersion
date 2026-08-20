@@ -1,4 +1,8 @@
 # xdispersion
+[![Docs](https://readthedocs.org/projects/xdispersion/badge/?version=latest)](https://xdispersion.readthedocs.io/en/latest/)
+[![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 ![illustrative plot](./pics/illustration.png)
 
 

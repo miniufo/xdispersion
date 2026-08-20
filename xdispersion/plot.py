@@ -4,6 +4,16 @@ Created on 2024.11.20
 
 @author: MiniUFO
 Copyright 2018. All rights reserved. Use is subject to license terms.
+
+Module: xdispersion.plot
+=========================
+
+Convenience plotting functions for relative-dispersion results.
+
+:func:`panel` creates a single matplotlib axis showing one or more
+empirical curves (with optional error bars) together with one or more
+analytic predictions.  The function handles log-log axes, multi-curve
+legends, and twin-axis layouts.
 """
 import numpy as np
 from .utils import mean_at_rbin
