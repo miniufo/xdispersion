@@ -1,5 +1,5 @@
 xdispersion APIs
-============
+================
 
 .. toctree::
    :maxdepth: 4

@@ -4,7 +4,7 @@
    contain the root `toctree` directive.
 
 Example usage
-========
+=============
 
 Example usages of the package are demonstrated in a series of notebooks here. 
 Users are also encouraged to add their own examples.

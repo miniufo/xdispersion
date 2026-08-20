@@ -530,7 +530,7 @@ class RelativeDispersion(object):
 
         - ``rx``, ``ry``  – zonal / meridional separation components
         - ``rxy``         – cross term ``rx * ry``
-        - ``r``           – total separation ``|r|`
+        - ``r``           – total separation ``|r|``
         - ``rpb``         – perturbation separation (deviation from
           initial position), i.e. how far the *change* in separation
           has grown relative to ``t=0``

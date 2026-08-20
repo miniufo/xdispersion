@@ -84,7 +84,7 @@ exclude_patterns = [
 # -- Options for HTML output -------------------------------------------------
 
 # Logo
-html_logo = os.path.join('_static', 'xdispersionLogo.png')
+html_logo = os.path.join('_static', 'xinvertLogo.png')
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
@@ -92,7 +92,6 @@ html_logo = os.path.join('_static', 'xdispersionLogo.png')
 html_theme = 'sphinx_rtd_theme'
 html_theme_options = {
     'logo_only': True,
-    'display_version': False,
     'collapse_navigation': True,
     'navigation_depth': 4,
     'prev_next_buttons_location': 'bottom',  # top and bottom
@@ -110,4 +109,4 @@ html_static_path = ['_static']
 # docs.  This file should be a Windows icon file (.ico) being 16x16 or 32x32
 # pixels large. Static folder is for CSS and image files. Use ImageMagick to
 # convert png to ico on command line with 'convert image.png image.ico'
-html_favicon = os.path.join('_static', 'xdispersionIcon.ico')
+html_favicon = os.path.join('_static', 'xinvertIcon.ico')

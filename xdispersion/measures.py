@@ -501,11 +501,6 @@ def anisotropy(
         Lower-bound of confidence interval
     ub: xarray.DataArray
         Upper-bound of confidence interval
-    
-    Returns
-    -------
-    ani: xr.DataArray
-        Anisotropy.
     """
     # define how to take average
     def how_to_mean(rx, ry, rxy, r):

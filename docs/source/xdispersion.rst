@@ -1,9 +1,9 @@
 xdispersion package
-===============
+===================
 
 
 xdispersion.analytics module
--------------------
+-----------------------------
 
 .. automodule:: xdispersion.analytics
    :members:
@@ -11,7 +11,7 @@ xdispersion.analytics module
    :show-inheritance:
 
 xdispersion.core module
--------------------
+-----------------------
 
 .. automodule:: xdispersion.core
    :members:
@@ -19,7 +19,7 @@ xdispersion.core module
    :show-inheritance:
 
 xdispersion.measures module
---------------------------
+---------------------------
 
 .. automodule:: xdispersion.measures
    :members:
@@ -27,7 +27,7 @@ xdispersion.measures module
    :show-inheritance:
 
 xdispersion.plot module
----------------------
+-----------------------
 
 .. automodule:: xdispersion.plot
    :members:
@@ -35,7 +35,7 @@ xdispersion.plot module
    :show-inheritance:
 
 xdispersion.template module
----------------------
+---------------------------
 
 .. automodule:: xdispersion.template
    :members:
@@ -43,10 +43,9 @@ xdispersion.template module
    :show-inheritance:
 
 xdispersion.utils module
---------------------
+------------------------
 
 .. automodule:: xdispersion.utils
    :members:
    :undoc-members:
    :show-inheritance:
-

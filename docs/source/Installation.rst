@@ -59,7 +59,7 @@ few extra dependencies that you can install via:::
 .. _dask: http://dask.pydata.org/
 .. _numpy: https://numpy.org/
 .. _xarray: http://xarray.pydata.org/
-.. _scipy: https://numba.pydata.org/
+.. _numba: https://numba.pydata.org/
 .. _xhistogram: https://github.com/xgcm/xhistogram
 .. _tqdm: https://tqdm.github.io/
 .. _mpmath: https://mpmath.org/

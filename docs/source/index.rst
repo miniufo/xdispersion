@@ -4,7 +4,7 @@
    contain the root `toctree` directive.
 
 Welcome to xdispersion's documentation!
-===================================
+========================================
 
 .. image:: https://raw.githubusercontent.com/miniufo/xdispersion/master/pics/illustration.png
 
