@@ -17,6 +17,7 @@ xdispersion.core module
    :members:
    :undoc-members:
    :show-inheritance:
+   :exclude-members: acceleration_measures2
 
 xdispersion.measures module
 ---------------------------

@@ -660,77 +660,79 @@ class RelativeDispersion(object):
         return du, dv, dul, dut, vsi, vsj, uv
 
     
-    def acceleration_measures2(self,
-        pairs: xr.Dataset
-    ) -> Tuple[xr.DataArray, xr.DataArray, xr.DataArray, xr.DataArray,
-               xr.DataArray, xr.DataArray, xr.DataArray]:
-        """[Deprecated] Calculate acceleration by differentiating positions twice.
-
-        This is the position-differentiation version.  Use
-        :meth:`acceleration_measures` instead, which differentiates
-        velocities (more accurate when velocities are directly observed).
-        """
-        dt = self.dt
-        
-        xpos = self.load_variable(pairs, self.xpos)
-        ypos = self.load_variable(pairs, self.ypos)
-        
-        xi = xpos.isel(particle=0)
-        xj = xpos.isel(particle=1)
-        yi = ypos.isel(particle=0)
-        yj = ypos.isel(particle=1)
-        
-        if self.coord == 'latlon': # need to convert degree to unit of Rearth
-            xi = np.deg2rad(xi)
-            xj = np.deg2rad(xj)
-            yi = np.deg2rad(yi)
-            yj = np.deg2rad(yj)
-            
-            axi = xi.pad({'rtime':1}, mode='edge').diff('rtime', label='lower').diff('rtime', label='upper') / dt**2.0
-            axj = xj.pad({'rtime':1}, mode='edge').diff('rtime', label='lower').diff('rtime', label='upper') / dt**2.0
-            ayi = yi.pad({'rtime':1}, mode='edge').diff('rtime', label='lower').diff('rtime', label='upper') / dt**2.0
-            ayj = yj.pad({'rtime':1}, mode='edge').diff('rtime', label='lower').diff('rtime', label='upper') / dt**2.0
-            
-            # convert radial to meter
-            axi = axi * np.cos((yi + yj)/2.0) * self.Rearth
-            axj = axj * np.cos((yi + yj)/2.0) * self.Rearth
-            ayi = ayi * self.Rearth
-            ayj = ayj * self.Rearth
-            
-            dax = axi - axj
-            day = ayi - ayj
-            ai  = np.hypot(axi, ayi)
-            aj  = np.hypot(axj, ayj)
-            axy = axi * axj + ayi * ayj
-            
-            # convert radial to meter
-            rx = (xi - xj) * np.cos((yi + yj)/2.0) * self.Rearth
-            ry = (yi - yj) * self.Rearth
-            r  = geodist(xi, xj, yi, yj) * self.Rearth
-            
-            dal = (rx * dax + ry * day) / r # longitudinal acceleration
-            dat = (rx * day - ry * dax) / r # transversal  acceleration
-            
-        else: # cartesian coordinate
-            axi = xi.pad({'rtime':1}, mode='edge').diff('rtime', label='lower').diff('rtime', label='upper') / dt**2.0
-            axj = xj.pad({'rtime':1}, mode='edge').diff('rtime', label='lower').diff('rtime', label='upper') / dt**2.0
-            ayi = yi.pad({'rtime':1}, mode='edge').diff('rtime', label='lower').diff('rtime', label='upper') / dt**2.0
-            ayj = yj.pad({'rtime':1}, mode='edge').diff('rtime', label='lower').diff('rtime', label='upper') / dt**2.0
-            
-            dax = axi - axj
-            day = ayi - ayj
-            ai  = np.hypot(axi, ayi)
-            aj  = np.hypot(axj, ayj)
-            axy = axi * axj + ayi * ayj
-            
-            rx = xi - xj
-            ry = yi - yj
-            r  = np.hypot(rx, ry)
-
-            dal = (rx * dax + ry * day) / r # longitudinal acceleration
-            dat = (rx * day - ry * dax) / r # transversal  acceleration
-            
-        return dax, day, dal, dat, ai, aj, axy
+    # [Deprecated] Commented out: position-differentiation version of
+    # acceleration_measures.  Use acceleration_measures instead.
+    # def acceleration_measures2(self,
+    #     pairs: xr.Dataset
+    # ) -> Tuple[xr.DataArray, xr.DataArray, xr.DataArray, xr.DataArray,
+    #            xr.DataArray, xr.DataArray, xr.DataArray]:
+    #     """[Deprecated] Calculate acceleration by differentiating positions twice.
+    #
+    #     This is the position-differentiation version.  Use
+    #     :meth:`acceleration_measures` instead, which differentiates
+    #     velocities (more accurate when velocities are directly observed).
+    #     """
+    #     dt = self.dt
+    #
+    #     xpos = self.load_variable(pairs, self.xpos)
+    #     ypos = self.load_variable(pairs, self.ypos)
+    #
+    #     xi = xpos.isel(particle=0)
+    #     xj = xpos.isel(particle=1)
+    #     yi = ypos.isel(particle=0)
+    #     yj = ypos.isel(particle=1)
+    #
+    #     if self.coord == 'latlon': # need to convert degree to unit of Rearth
+    #         xi = np.deg2rad(xi)
+    #         xj = np.deg2rad(xj)
+    #         yi = np.deg2rad(yi)
+    #         yj = np.deg2rad(yj)
+    #
+    #         axi = xi.pad({'rtime':1}, mode='edge').diff('rtime', label='lower').diff('rtime', label='upper') / dt**2.0
+    #         axj = xj.pad({'rtime':1}, mode='edge').diff('rtime', label='lower').diff('rtime', label='upper') / dt**2.0
+    #         ayi = yi.pad({'rtime':1}, mode='edge').diff('rtime', label='lower').diff('rtime', label='upper') / dt**2.0
+    #         ayj = yj.pad({'rtime':1}, mode='edge').diff('rtime', label='lower').diff('rtime', label='upper') / dt**2.0
+    #
+    #         # convert radial to meter
+    #         axi = axi * np.cos((yi + yj)/2.0) * self.Rearth
+    #         axj = axj * np.cos((yi + yj)/2.0) * self.Rearth
+    #         ayi = ayi * self.Rearth
+    #         ayj = ayj * self.Rearth
+    #
+    #         dax = axi - axj
+    #         day = ayi - ayj
+    #         ai  = np.hypot(axi, ayi)
+    #         aj  = np.hypot(axj, ayj)
+    #         axy = axi * axj + ayi * ayj
+    #
+    #         # convert radial to meter
+    #         rx = (xi - xj) * np.cos((yi + yj)/2.0) * self.Rearth
+    #         ry = (yi - yj) * self.Rearth
+    #         r  = geodist(xi, xj, yi, yj) * self.Rearth
+    #
+    #         dal = (rx * dax + ry * day) / r # longitudinal acceleration
+    #         dat = (rx * day - ry * dax) / r # transversal  acceleration
+    #
+    #     else: # cartesian coordinate
+    #         axi = xi.pad({'rtime':1}, mode='edge').diff('rtime', label='lower').diff('rtime', label='upper') / dt**2.0
+    #         axj = xj.pad({'rtime':1}, mode='edge').diff('rtime', label='lower').diff('rtime', label='upper') / dt**2.0
+    #         ayi = yi.pad({'rtime':1}, mode='edge').diff('rtime', label='lower').diff('rtime', label='upper') / dt**2.0
+    #         ayj = yj.pad({'rtime':1}, mode='edge').diff('rtime', label='lower').diff('rtime', label='upper') / dt**2.0
+    #
+    #         dax = axi - axj
+    #         day = ayi - ayj
+    #         ai  = np.hypot(axi, ayi)
+    #         aj  = np.hypot(axj, ayj)
+    #         axy = axi * axj + ayi * ayj
+    #
+    #         rx = xi - xj
+    #         ry = yi - yj
+    #         r  = np.hypot(rx, ry)
+    #
+    #         dal = (rx * dax + ry * day) / r # longitudinal acceleration
+    #         dat = (rx * day - ry * dax) / r # transversal  acceleration
+    #
+    #     return dax, day, dal, dat, ai, aj, axy
 
     
     def acceleration_measures(self,

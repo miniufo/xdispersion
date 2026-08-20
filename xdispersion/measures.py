@@ -400,9 +400,13 @@ def initial_memory(
     nproc: int = 1
 ) -> Union[xr.DataArray,
            Tuple[xr.DataArray, xr.DataArray, xr.DataArray]]:
-    """Calculate initial memory for initial separation vector r0
-    
-    Defined as <(r0 \\cdot v)**order> or <(r0 \\cdot a)**order>, depending on the input.
+    r"""Calculate initial memory for initial separation vector r0
+
+    .. math::
+        \mathrm{initm} = \langle (\mathbf{r}_0 \cdot \mathbf{v})^{\mathrm{order}} \rangle
+
+    or :math:`\langle (\mathbf{r}_0 \cdot \mathbf{a})^{\mathrm{order}} \rangle`,
+    depending on the input.
     
     Parameters
     ----------
