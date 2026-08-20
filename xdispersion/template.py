@@ -208,7 +208,7 @@ def cal_measures(rd, pairs, rbins, ensemble=0, nproc=1, one_by_one=False, measur
                     measure = next(m for m in MEASURES if m["name"] == name)
                     diags_to_use.append(measure)
         else:
-            # Pass custom measure list �� use directly
+            # Pass custom measure list -- use directly
             diags_to_use = measures
 
     # Get basic data (local variables).
