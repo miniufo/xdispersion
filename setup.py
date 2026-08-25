@@ -47,5 +47,6 @@ setup(
         "scipy",
         "xhistogram",
         "mpmath",
+        "numba",
     ],
 )

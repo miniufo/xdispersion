@@ -12,3 +12,4 @@ dependencies:
   - xhistogram
   - mpmath
   - matplotlib
+  - numba
