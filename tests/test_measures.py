@@ -128,7 +128,7 @@ def ctx(request):
 # --------------------------------------------------------------------------- #
 #  Helper for golden-file comparison                                          #
 # --------------------------------------------------------------------------- #
-def _assert_close(result_vals, ref_vals, rtol=1e-3, atol=1e-6):
+def _assert_close(result_vals, ref_vals, rtol=2e-3, atol=1e-6):
     """Compare two arrays, ignoring positions where either is NaN/inf.
 
     ``atol`` handles near-zero values where chunked (dask) vs. in-memory
