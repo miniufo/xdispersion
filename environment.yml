@@ -13,3 +13,4 @@ dependencies:
   - mpmath
   - matplotlib
   - numba
+  - netcdf4
