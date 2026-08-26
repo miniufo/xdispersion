@@ -2,6 +2,10 @@
 [![Docs](https://readthedocs.org/projects/xdispersion/badge/?version=latest)](https://xdispersion.readthedocs.io/en/latest/)
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![PyPI version](https://badge.fury.io/py/xdispersion.svg)](https://badge.fury.io/py/xdispersion)
+[![Publish to PyPI](https://github.com/miniufo/xdispersion/actions/workflows/PyPI-publish.yml/badge.svg)](https://github.com/miniufo/xdispersion/actions/workflows/PyPI-publish.yml)
+[![pytest](https://github.com/miniufo/xdispersion/actions/workflows/tests.yml/badge.svg)](https://github.com/miniufo/xdispersion/actions/workflows/tests.yml)
+[![DOI](https://zenodo.org/badge/289728481.svg)](https://doi.org/10.5281/zenodo.7801510)
 
 ![illustrative plot](./pics/illustration.png)
 
