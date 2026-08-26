@@ -17,4 +17,4 @@ from .plot import panel
 from .template import cal_measures
 from .utils import geodist, gen_rbins, sum_at_rbin, mean_at_rbin, loglog_fit, semilog_fit
 
-__version__ = "0.0.2"
+__version__ = "0.0.4"
