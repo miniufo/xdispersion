@@ -1,17 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on 2024.11.20
-
-@author: MiniUFO
-Copyright 2018. All rights reserved. Use is subject to license terms.
-
-Module: xdispersion.template
-============================
-
-High-level orchestration for computing all (or a subset of) diagnostic
-measures in one call.
-
-**MEASURES registry**
+Template module of xdispersion: high-level orchestration for computing all diagnostic measures.
 
 A global list ``MEASURES`` maps measure names (e.g. ``'r2_t'``,
 ``'FSLE_r'``) to callables that take building-block arrays and

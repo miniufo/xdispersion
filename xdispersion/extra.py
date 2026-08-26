@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Created on 2024.11.21
+Extra module of xdispersion: particle-level statistics and alternative APIs.
 
-@author: MiniUFO
-Copyright 2018. All rights reserved. Use is subject to license terms.
+Defines ``ParticleStatistics`` and an extended ``RelativeDispersion`` class
+with additional per-particle diagnostics not covered by :mod:`xdispersion.core`.
 """
 import xarray as xr
 import numpy as np

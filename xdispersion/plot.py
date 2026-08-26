@@ -1,14 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on 2024.11.20
-
-@author: MiniUFO
-Copyright 2018. All rights reserved. Use is subject to license terms.
-
-Module: xdispersion.plot
-=========================
-
-Convenience plotting functions for relative-dispersion results.
+Plot module of xdispersion: convenience plotting for relative-dispersion results.
 
 :func:`panel` creates a single matplotlib axis showing one or more
 empirical curves (with optional error bars) together with one or more

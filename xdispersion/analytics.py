@@ -1,13 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on Thur Nov  20 17:24:46 2024
-
-@author: Yu-Kun Qian
-
-Module: xdispersion.analytics
-=============================
-
-Analytic (theoretical) predictions for relative-dispersion statistics.
+Analytics module of xdispersion: theoretical predictions for dispersion statistics.
 
 Provides closed-form expressions for relative dispersion, kurtosis,
 relative diffusivity, velocity structure functions, PDF of pair

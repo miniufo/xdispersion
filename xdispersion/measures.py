@@ -1,17 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on 2025.02.26
-
-@author: MiniUFO
-Copyright 2018. All rights reserved. Use is subject to license terms.
-
-Module: xdispersion.measures
-============================
-
-Diagnostic measure functions for two-particle (relative dispersion)
-statistics.
-
-**Naming convention**
+Measures module of xdispersion: diagnostic functions for relative-dispersion statistics.
 
 Each function returns a DataArray whose ``.name`` encodes the measure
 and averaging mode:

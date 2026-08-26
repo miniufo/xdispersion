@@ -1,15 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Created on 2025.02.26
+Core module of xdispersion: the ``RelativeDispersion`` class.
 
-@author: MiniUFO
-Copyright 2018. All rights reserved. Use is subject to license terms.
-
-Module: xdispersion.core
-========================
-
-This module defines the :class:`RelativeDispersion` class, which is the
-main entry point for two-particle (relative dispersion) analysis.
+Main entry point for two-particle (relative dispersion) analysis.
 
 **Key concepts:**
 

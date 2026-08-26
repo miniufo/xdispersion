@@ -1,12 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on 2025.04.20
-
-@author: MiniUFO
-Copyright 2018. All rights reserved. Use is subject to license terms.
-
-Module: xdispersion.fpe
-========================
+FPE module of xdispersion: Fokker-Planck equation integration for pair separation PDF.
 
 Numerical integration of the Fokker-Planck equation for the PDF of
 pair separations.

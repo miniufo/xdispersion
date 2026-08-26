@@ -1,14 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Created on 2024.11.20
+Utils module of xdispersion: low-level helper functions.
 
-@author: MiniUFO
-Copyright 2018. All rights reserved. Use is subject to license terms.
-
-Module: xdispersion.utils
-=========================
-
-Low-level helper functions used by :mod:`~xdispersion.core` and
+Helper functions used by :mod:`~xdispersion.core` and
 :mod:`~xdispersion.measures`.
 
 **Key functions**

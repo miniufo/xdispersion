@@ -5,8 +5,7 @@
 [![PyPI version](https://badge.fury.io/py/xdispersion.svg)](https://badge.fury.io/py/xdispersion)
 [![Publish to PyPI](https://github.com/miniufo/xdispersion/actions/workflows/PyPI-publish.yml/badge.svg)](https://github.com/miniufo/xdispersion/actions/workflows/PyPI-publish.yml)
 [![pytest](https://github.com/miniufo/xdispersion/actions/workflows/tests.yml/badge.svg)](https://github.com/miniufo/xdispersion/actions/workflows/tests.yml)
-[![DOI](https://zenodo.org/badge/289728481.svg)](https://doi.org/10.5281/zenodo.7801510)
-
+[![DOI](https://zenodo.org/badge/891238068.svg)](https://doi.org/10.5281/zenodo.22104514)
 ![illustrative plot](./pics/illustration.png)
 
 
