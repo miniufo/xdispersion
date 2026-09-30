@@ -49,4 +49,11 @@ setup(
         "mpmath",
         "numba",
     ],
+
+    # `xdispersion.extra` is still under test and is not imported by
+    # `xdispersion/__init__.py`, so its extra dependency stays opt-in:
+    #     pip install "xdispersion[extra]"
+    extras_require={
+        "extra": ["xrft"],
+    },
 )
