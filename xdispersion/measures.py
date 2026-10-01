@@ -100,7 +100,7 @@ def relative_dispersion(
             return mean_at_rbin(v, r, rbins).astype(r.dtype)
         else:
             raise Exception(f'unsupported mean_at string {mean_at}, '+
-                            f'should be one of [const-t, const-r]')
+                            'should be one of [const-t, const-r]')
         
     if ensemble <= 0:
         return how_to_mean(rN, r).rename(f'r{order}_{mean_at[-1]}')
@@ -183,7 +183,7 @@ def velocity_structure_function(
             return mean_at_rbin(v, r, rbins).astype(r.dtype)
         else:
             raise Exception(f'unsupported mean_at string {mean_at}, '+
-                            f'should be one of [const-t, const-r]')
+                            'should be one of [const-t, const-r]')
         
     if ensemble <= 0:
         return how_to_mean(SN, r).rename(f'S{order}_{mean_at[-1]}')
@@ -257,7 +257,7 @@ def relative_diffusivity(
                 return np.abs(v).mean('pair').astype(r.dtype)
             else:
                 raise Exception(f'unsupported samples {samples}, '+
-                                f'should be one of [all, positive, negative, abs]')
+                                'should be one of [all, positive, negative, abs]')
         elif mean_at == 'const-r':
             if samples == 'all':
                 return mean_at_rbin(v, r, rbins).astype(r.dtype)
@@ -269,10 +269,10 @@ def relative_diffusivity(
                 return mean_at_rbin(np.abs(v), r, rbins).astype(r.dtype)
             else:
                 raise Exception(f'unsupported samples {samples}, '+
-                                f'should be one of [all, positive, negative, abs]')
+                                'should be one of [all, positive, negative, abs]')
         else:
             raise Exception(f'unsupported mean_at string {mean_at}, '+
-                            f'should be one of [const-t, const-r]')
+                            'should be one of [const-t, const-r]')
         
     if ensemble <= 0:
         return how_to_mean(K2, r).rename(f'K2_{mean_at[-1]}')
@@ -349,7 +349,7 @@ def finite_amplitude_growth_rate(
                 return v.where(v<0).mean('pair').astype(r.dtype)
             else:
                 raise Exception(f'unsupported samples {samples}, '+
-                                f'should be one of [all, positive, negative]')
+                                'should be one of [all, positive, negative]')
         elif mean_at == 'const-r':
             if samples == 'all':
                 return mean_at_rbin(v, r, rbins).astype(r.dtype)
@@ -359,10 +359,10 @@ def finite_amplitude_growth_rate(
                 return mean_at_rbin(v, r, rbins, cond=v<0).astype(r.dtype)
             else:
                 raise Exception(f'unsupported samples {samples}, '+
-                                f'should be one of [all, positive, negative]')
+                                'should be one of [all, positive, negative]')
         else:
             raise Exception(f'unsupported mean_at string {mean_at}, '+
-                            f'should be one of [const-t, const-r]')
+                            'should be one of [const-t, const-r]')
     
     if ensemble <= 0:
         return how_to_mean(sFAGR, r).rename(f'FAGR{p}_{mean_at[-1]}')
@@ -440,7 +440,7 @@ def initial_memory(
             return mean_at_rbin(v, r, rbins).astype(r.dtype)
         else:
             raise Exception(f'unsupported mean_at string {mean_at}, '+
-                            f'should be one of [const-t, const-r]')
+                            'should be one of [const-t, const-r]')
         
     if ensemble <= 0:
         return how_to_mean(initm, r).rename(f'initm_{mean_at[-1]}')
@@ -511,7 +511,7 @@ def anisotropy(
             return np.sqrt(ra2m / rb2m).astype(r.dtype)
         else:
             raise Exception(f'unsupported mean_at string {mean_at}, '+
-                            f'should be one of [const-t, const-r]')
+                            'should be one of [const-t, const-r]')
         
     if ensemble <= 0:
         return how_to_mean(rx, ry, rxy, r).rename(f'aniso_{mean_at[-1]}')
@@ -581,7 +581,7 @@ def lagrangian_velocity_correlation(
             return ((2.0 * uvm) / (v1m + v2m)).astype(r.dtype)
         else:
             raise Exception(f'unsupported mean_at string {mean_at}, '+
-                            f'should be one of [const-t, const-r]')
+                            'should be one of [const-t, const-r]')
         
     if ensemble <= 0:
         return how_to_mean(uv, vs1, vs2, r).rename(f'lvc_{mean_at[-1]}')
@@ -640,7 +640,7 @@ def kurtosis(
             return (r4m / r2m ** 2).astype(r.dtype)
         else:
             raise Exception(f'unsupported mean_at string {mean_at}, '+
-                            f'should be one of [const-t, const-r]')
+                            'should be one of [const-t, const-r]')
         
     if ensemble <= 0:
         return how_to_mean(r).rename(f'Ku_{mean_at[-1]}')
@@ -700,7 +700,7 @@ def cencini_vulpiani_exponent(
             return (mean_at_rbin(K2, r, rbins) / rbins**2.0).astype(r.dtype)
         else:
             raise Exception(f'unsupported mean_at string {mean_at}, '+
-                            f'should be one of [const-t, const-r]')
+                            'should be one of [const-t, const-r]')
         
     if ensemble <= 0:
         return how_to_mean(r).rename(f'CVE_{mean_at[-1]}')
@@ -753,7 +753,7 @@ def finite_size_lyapunov_exponent_bak(
     """
     if mean_at == 'const-t':
         raise Exception(f'unsupported mean_at string {mean_at}, '+
-                        f'should be only const-r')
+                        'should be only const-r')
     
     def get_Td(r_single, rbins):
         if interpT > 1:
@@ -836,7 +836,7 @@ def finite_size_lyapunov_exponent(
     """
     if mean_at == 'const-t':
         raise Exception(f'unsupported mean_at string {mean_at}, '+
-                        f'should be only const-r')
+                        'should be only const-r')
     
     if interpT > 1:
         rtime = r.rtime
@@ -967,7 +967,7 @@ def cumulative_inverse_separation_time(
             return CIST.astype(v.dtype)
         else:
             raise Exception(f'unsupported mean_at string {mean_at}, '+
-                            f'should be only const-r')
+                            'should be only const-r')
         
     if ensemble <= 0:
         return how_to_mean(r).rename(f'CIST_{mean_at[-1]}')

@@ -35,12 +35,11 @@ Main entry point for two-particle (relative dispersion) analysis.
 """
 import numpy as np
 import xarray as xr
-import itertools
 import dask.array as dsa
 from tqdm import tqdm
 from dask import delayed
 from dask.array import histogram as dsa_histogram
-from typing import Optional, List, Dict, Tuple, Literal
+from typing import Optional, List, Tuple, Literal
 from .utils import geodist, get_overlap_indices
 from .measures import rotational_divergent_components
 
@@ -437,7 +436,7 @@ class RelativeDispersion(object):
             rmin, rmax = r0
         else:
             raise Exception(f'unsupported r0 {r0}, should be a list ' +
-                            f'of two floats or a single float')
+                            'of two floats or a single float')
             
         cond = np.logical_and(pairs.r0>=rmin, pairs.r0<rmax).load()
         
@@ -482,7 +481,7 @@ class RelativeDispersion(object):
             rmin, rmax = r0
         else:
             raise Exception(f'unsupported r0 {r0}, should be a list ' +
-                            f'of two floats or a single float')
+                            'of two floats or a single float')
         
         ds = pairs.copy(deep=True) # make a copy to modify
         idxI = pairs.idxI.values
@@ -900,7 +899,6 @@ class RelativeDispersion(object):
         dax, day, dal, dat, ai, aj, axy : xarray.DataArray
             Each has dimensions ``[pair, rtime]``.
         """
-        dt = self.dt
         
         xpos = self.load_variable(pairs, self.xpos)
         ypos = self.load_variable(pairs, self.ypos)
@@ -1224,7 +1222,6 @@ class RelativeDispersion(object):
         numFI: xarray.DataArray
             Number of observations for interpolated FSLE (see interpT).
         """
-        N = len(pairs['pair'])
         
         xpos = self.load_variable(pairs, self.xpos)
         ypos = self.load_variable(pairs, self.ypos)
@@ -1233,8 +1230,6 @@ class RelativeDispersion(object):
 
         Rearth = self.Rearth
         rbinv  = rbins.values
-        deltaT = self.dt
-        dtype  = self.dtype
         
         #########   start calculations   ########
         if self.coord == 'latlon':

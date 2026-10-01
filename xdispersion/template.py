@@ -27,7 +27,7 @@ from .measures import relative_dispersion, velocity_structure_function,\
     lagrangian_velocity_correlation, kurtosis, cencini_vulpiani_exponent, finite_size_lyapunov_exponent,\
     cumulative_inverse_separation_time, probability_density_function, cumulative_density_function,\
     rotational_divergent_components
-from .utils import mean_at_rbin, sum_at_rbin
+from .utils import sum_at_rbin
 
 """
 A template for calculating all/some available measures.

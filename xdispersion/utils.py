@@ -23,7 +23,6 @@ import numpy as np
 import xarray as xr
 from typing import Union, Optional, List, Dict, Tuple, Callable
 from xhistogram.xarray import histogram
-import multiprocessing
 import concurrent.futures
 
 

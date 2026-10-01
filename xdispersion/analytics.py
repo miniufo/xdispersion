@@ -13,8 +13,9 @@ measures from :mod:`~xdispersion.measures` can be compared.
 import numpy as np
 import mpmath as mpm
 import xarray as xr
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict
 from scipy.special import i0, ive, gammaincinv, gamma
+from .measures import cumulative_density_function
 
 
 """
@@ -760,11 +761,19 @@ def num_CIST(
         Analytic prediction of CIST.
     """
     if scaled2PiR:
-        CDF = cumul_dens_func(PDF)
+        CDF = cumulative_density_function(PDF)
     else:
-        CDF = cumul_dens_func(PDF * 2 * np.pi * PDF.rbin)
+        CDF = cumulative_density_function(PDF * 2 * np.pi * PDF.rbin)
     
+    # FIXME: `ana_CIST` is the *analytic* predictor and its signature is
+    # `ana_CIST(r, alpha, params, regime)`, so this call matches neither its
+    # positional arguments nor its keywords, and it raises TypeError.  The
+    # numerical CIST path already exists as
+    # `measures.cumulative_inverse_separation_time`, which fits a slope to the
+    # middle of the CDF; this function should be rewritten against that rather
+    # than against `ana_CIST`.  Left as-is because choosing the estimator is a
+    # numerical decision, not a lint fix.
     cist = ana_CIST(CDF, lower, upper, maskout=maskout)
-    
+
     return cist.rename('cist')
 

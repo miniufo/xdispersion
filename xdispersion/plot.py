@@ -7,7 +7,6 @@ empirical curves (with optional error bars) together with one or more
 analytic predictions.  The function handles log-log axes, multi-curve
 legends, and twin-axis layouts.
 """
-import numpy as np
 from .utils import mean_at_rbin
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 

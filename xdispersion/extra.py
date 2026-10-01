@@ -6,10 +6,8 @@ Defines ``ParticleStatistics`` and an extended ``RelativeDispersion`` class
 with additional per-particle diagnostics not covered by :mod:`xdispersion.core`.
 """
 import xarray as xr
-import numpy as np
-import numba as nb
 import xrft as xrft
-from .utils import geodist
+from tqdm import tqdm
 
 """
 codes below are still under test

@@ -21,7 +21,7 @@ PDF evolution.
 import numpy as np
 import numba as nb
 import xarray as xr
-from typing import Optional, Tuple, Literal, Union, List
+from typing import Literal, Union, List
 from tqdm import tqdm
 
 
@@ -58,7 +58,10 @@ def integrate(
     """
     re  = []
     r   = init['r']
-    CFL = CFLcondition(kappa, dt)
+    # Called for its side effect only: CFLcondition() prints a warning when
+    # the CFL condition is violated, and this is the only place that check
+    # happens for `integrate`.  The returned array is not needed here.
+    CFLcondition(kappa, dt)
 
     if scheme == 'RK4':
         steper = RungeKutta4
