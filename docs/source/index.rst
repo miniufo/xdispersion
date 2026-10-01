@@ -24,6 +24,8 @@ pairs.  This is a classical problem of turbulence and geophysical fluid dynamics
    Examples
    Contributors
 
+   SupportMatrix
+
 
    ../modules
 

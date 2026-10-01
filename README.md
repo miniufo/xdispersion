@@ -16,23 +16,23 @@ The package is designed for analyzing relative dispersion behaviors of Lagrangia
 ---
 ## 2. How to install
 **Requirements**
-`xdispersion` is developed under the environment with `xarray` (=version 0.15.0), `dask` (=version 2.11.0), `numpy` (=version 1.15.4), `scipy` (=version 1.13.1), `tqdm` (=version 4.66.5), `xhistogram` (=version 0.3.2), `mpmath` (=version 1.2.0).  Older versions of these packages are not well tested.
+`xdispersion` supports Python 3.9 through 3.13. Runtime dependencies are NumPy, xarray, Dask, SciPy, tqdm, xhistogram, mpmath, and Numba. The optional `xrft` dependency can be installed with `pip install "xdispersion[extra]"`.
 
 **Install via pip**
 ```
-pip install xdispersion # not yet
+pip install xdispersion
 ```
 
 **Install via conda**
 ```
-conda install -c conda-forge xdispersion # not yet
+conda install -c conda-forge xdispersion
 ```
 
 **Install from github**
 ```
 git clone https://github.com/miniufo/xdispersion.git
 cd xdispersion
-python setup.py install
+python -m pip install .
 ```
 
 
@@ -99,4 +99,3 @@ which is clean and clear, as it follows almost to its mathematical expression.
 ## 3. Examples
 
 Notebooks are given [here](https://github.com/miniufo/xdispersion/tree/main/docs/source/notebooks/) demonstrating how to use the package.
-
