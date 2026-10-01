@@ -18,13 +18,10 @@ Usage::
 import gc
 import os
 import sys
-import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import numpy as np
 import xarray as xr
-import psutil
 
 from xdispersion.core import RelativeDispersion
 from xdispersion.template import cal_measures
@@ -45,7 +42,6 @@ def test_ragged_chunk(chunk):
     """Test a single chunk size for the ragged dataset."""
     gc.collect()
     label = str(chunk) if chunk is not None else 'None'
-    proc = psutil.Process()
 
     # Phase 1: setup + pairs
     with MemMonitor() as m1:

@@ -9,6 +9,9 @@ import os
 import numpy as np
 import xarray as xr
 import pytest
+
+pytestmark = pytest.mark.regression
+
 from xdispersion.core import RelativeDispersion
 from xdispersion.measures import (
     relative_dispersion,

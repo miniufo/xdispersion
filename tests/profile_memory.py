@@ -55,8 +55,6 @@ from xdispersion.measures import (
     finite_size_lyapunov_exponent,
     cumulative_inverse_separation_time,
     probability_density_function,
-    cumulative_density_function,
-    principle_axis_components,
     rotational_divergent_components,
 )
 from xdispersion.template import cal_measures
@@ -356,7 +354,7 @@ def print_table(title, rows):
 
     # Highlight top-3 memory consumers
     sorted_rows = sorted(rows, key=lambda r: r[3], reverse=True)
-    print(f'\n  Top-3 memory (Δ):  ', end='')
+    print('\n  Top-3 memory (Δ):  ', end='')
     print(', '.join(f'{r[0]} ({_mb(r[3])} MB)' for r in sorted_rows[:3]))
 
 
@@ -379,15 +377,15 @@ def profile_dataset(name, interval=0.002):
           f'peak={_mb(m.peak)} MB  Δ={_mb(m.delta)} MB  ({elapsed:.2f}s)')
 
     # --- building blocks ---
-    print(f'\n  Building blocks:')
+    print('\n  Building blocks:')
     bb, bb_rows = profile_building_blocks(rd, pairs)
 
     # --- per-measure ---
-    print(f'\n  Per-measure (building blocks pre-loaded):')
+    print('\n  Per-measure (building blocks pre-loaded):')
     m_rows = profile_measures(bb, interval=interval)
 
     # --- cal_measures (all) ---
-    print(f'\n  cal_measures (all at once, one_by_one=False):')
+    print('\n  cal_measures (all at once, one_by_one=False):')
     cm_rows = profile_cal_measures(rd, pairs, interval=interval)
 
     # --- summary tables ---
