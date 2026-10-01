@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "slow: long-running numerical tests",
+  "regression: reference-data regression tests",
+  "memory: memory and performance tests",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+exclude = [".ipynb_checkpoints", "paper", "private", "*.ipynb"]
+
+[tool.ruff.lint]
+# Only the correctness rules: pyflakes (F) and the syntax-error subset of
+# pycodestyle (E9).  The wider E/F/I/UP set reports ~200 further stylistic
+# findings (E701 one-line `if`, non-PEP585 annotations, import ordering) that
+# the existing codebase does not follow yet; enforcing them here would fail CI
+# on code nobody has touched.
+select = ["E9", "F"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# every import in __init__.py is a deliberate public re-export,
+# e.g. ``from xdispersion import relative_dispersion``; adding __all__
+# instead would make autodoc document each name twice.
+"xdispersion/__init__.py" = ["F401"]
+
+[tool.coverage.run]
+source = ["xdispersion"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
